@@ -509,7 +509,24 @@
    Payload — плоский JSON по id полей + массивы для мульти-выборов.
    ============================================================ */
 const SUBMIT_URL = "https://script.google.com/macros/s/AKfycbxnTuK2UxFXKCc2lswSbVNU2bzEbS-eJMHl_4DPBw7yb0AX3d7nbMLAK9u4R6mOvlGV/exec";
+/* Резервный канал: у части пользователей (РФ) блокируется script.google.com.
+   Тогда запрос уходит на этот прокси, который переправляет его в Google. */
+const PROXY_URL = "https://lightgray-oryx-237895.hostingersite.com/wp-json/srm/v1/v17";
 const CONTACT_FALLBACK_EMAIL = "deals@v17.vc";
+
+/* fetch с автоматическим переключением на прокси. */
+async function apiFetch(query, options){
+  try{
+    const resp = await fetch(SUBMIT_URL + (query || ''), options);
+    if(!resp.ok) throw new Error('bad status ' + resp.status);
+    return resp;
+  }catch(e){
+    if(!PROXY_URL) throw e;
+    const resp = await fetch(PROXY_URL + (query || ''), options);
+    if(!resp.ok) throw new Error('proxy bad status ' + resp.status);
+    return resp;
+  }
+}
 
 /* Пороги и вертикали по умолчанию. Если настроен SUBMIT_URL, реальные значения
    подтягиваются из листа «Settings» Google Таблицы (см. loadConfig ниже) —
@@ -570,7 +587,7 @@ document.querySelectorAll('.pillgroup').forEach(bindPillGroup);
 async function loadConfig(){
   if(!SUBMIT_URL) return;
   try{
-    const resp = await fetch(SUBMIT_URL + '?action=config');
+    const resp = await apiFetch('?action=config');
     const cfg = await resp.json();
     if(!cfg || !cfg.ok) return;
     if(cfg.thresholds){
@@ -785,7 +802,7 @@ async function submitForm(){
 
   try{
     if(SUBMIT_URL){
-      await fetch(SUBMIT_URL, {
+      await apiFetch('', {
         method: 'POST',
         headers: {'Content-Type': 'text/plain;charset=utf-8'},
         body: JSON.stringify(payload)
