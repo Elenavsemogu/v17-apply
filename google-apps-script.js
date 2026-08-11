@@ -86,8 +86,13 @@ var DECLINE_TEMPLATES = [
 function doPost(e) {
   try {
     var body = JSON.parse(e.postData.contents);
-    if (body.callback_query || body.message) {
+    // Любой апдейт Telegram (callback, служебные события) имеет update_id.
+    if (body.update_id !== undefined) {
       return handleTelegramUpdate(body);
+    }
+    // Заявка обязана содержать хотя бы название компании или email.
+    if (!body.company_name && !body.contact_email) {
+      return jsonResponse({ ok: false, error: 'empty submission ignored' });
     }
     return handleFormSubmission(body);
   } catch (err) {
