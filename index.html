@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V17 — Apply for funding</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F5F6F2;
+    --paper-raised:#FFFFFF;
+    --ink:#171B24;
+    --ink-soft:#4B5163;
+    --ink-muted:#8B90A0;
+    --line:#DEDDD3;
+    --capital:#1F4E8C;
+    --capital-soft:#E7EEF7;
+    --media:#C97F1E;
+    --media-soft:#F7ECDA;
+    --ok:#2F7D5B;
+    --ok-soft:#E6F1EB;
+    --warn:#B4432F;
+    --warn-soft:#F7E7E3;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'Inter',sans-serif;
+    background:var(--paper);
+    color:var(--ink);
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{
+    max-width:1080px;
+    margin:0 auto;
+    padding:48px 24px 96px;
+    display:grid;
+    grid-template-columns:340px 1fr;
+    gap:56px;
+  }
+  @media (max-width:860px){
+    .wrap{grid-template-columns:1fr;padding:32px 18px 64px;gap:36px}
+    .sidebar{position:static !important}
+  }
+
+  .sidebar{position:sticky;top:40px;align-self:start}
+  .eyebrow{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--ink-muted);
+    margin-bottom:14px;
+    display:block;
+  }
+  h1{
+    font-family:'Fraunces',serif;
+    font-weight:500;
+    font-size:34px;
+    line-height:1.12;
+    letter-spacing:-.01em;
+    margin-bottom:16px;
+  }
+  .lede{
+    color:var(--ink-soft);
+    font-size:15px;
+    margin-bottom:28px;
+  }
+  .thesis-line{
+    display:flex;
+    gap:10px;
+    align-items:baseline;
+    font-size:13px;
+    padding:10px 0;
+    border-top:1px solid var(--line);
+  }
+  .thesis-line:last-of-type{border-bottom:1px solid var(--line)}
+  .thesis-tag{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--ink-muted);
+    min-width:64px;
+  }
+
+  .gauge-block{margin-top:32px}
+  .gauge-label{
+    display:flex;
+    justify-content:space-between;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    color:var(--ink-muted);
+    margin-bottom:8px;
+  }
+  .gauge-track{
+    height:10px;
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:6px;
+    overflow:hidden;
+    display:flex;
+  }
+  .gauge-fill-capital{height:100%;background:var(--capital);width:0%;transition:width .4s ease}
+  .gauge-fill-media{height:100%;background:var(--media);width:0%;transition:width .4s ease}
+  .gauge-legend{
+    display:flex;
+    gap:16px;
+    margin-top:10px;
+    font-size:12px;
+    color:var(--ink-soft);
+  }
+  .gauge-legend span{display:flex;align-items:center;gap:6px}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+  .gauge-verdict{
+    margin-top:14px;
+    font-size:13px;
+    padding:10px 12px;
+    border-radius:var(--radius);
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    color:var(--ink-soft);
+  }
+
+  .card{
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:36px 40px;
+  }
+  @media (max-width:600px){.card{padding:24px 20px}}
+
+  .steps{display:flex;gap:6px;margin-bottom:32px}
+  .step-dot{flex:1;height:3px;background:var(--line);border-radius:2px;transition:background .3s ease}
+  .step-dot.active{background:var(--capital)}
+  .step-dot.done{background:var(--media)}
+
+  .step{display:none}
+  .step.visible{display:block}
+
+  h2{
+    font-family:'Fraunces',serif;
+    font-weight:500;
+    font-size:22px;
+    margin-bottom:6px;
+  }
+  .step-sub{color:var(--ink-muted);font-size:13px;margin-bottom:28px}
+
+  .field{margin-bottom:20px}
+  .field label{
+    display:block;
+    font-size:13px;
+    font-weight:500;
+    color:var(--ink-soft);
+    margin-bottom:7px;
+  }
+  .hint{font-size:12px;color:var(--ink-muted);margin-top:6px}
+  input[type=text],input[type=number],input[type=email],input[type=url],select,textarea{
+    width:100%;
+    padding:11px 13px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:var(--paper);
+    font-family:'Inter',sans-serif;
+    font-size:14px;
+    color:var(--ink);
+  }
+  textarea{resize:vertical;min-height:76px}
+  input:focus,select:focus,textarea:focus{
+    outline:none;
+    border-color:var(--capital);
+    box-shadow:0 0 0 3px var(--capital-soft);
+  }
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+  @media (max-width:560px){.row2,.row3{grid-template-columns:1fr}}
+
+  .pillgroup{display:flex;gap:8px;flex-wrap:wrap}
+  .pill{
+    padding:8px 14px;
+    border-radius:20px;
+    border:1px solid var(--line);
+    background:var(--paper);
+    font-size:13px;
+    cursor:pointer;
+    transition:all .15s ease;
+  }
+  .pill.selected{background:var(--capital);border-color:var(--capital);color:#fff}
+
+  .nav-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-top:32px;
+    padding-top:24px;
+    border-top:1px solid var(--line);
+  }
+  button{
+    font-family:'Inter',sans-serif;
+    font-size:14px;
+    font-weight:500;
+    padding:11px 22px;
+    border-radius:8px;
+    cursor:pointer;
+    border:1px solid var(--line);
+    background:transparent;
+    color:var(--ink);
+  }
+  button.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+  button.primary:hover{opacity:.9}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.ghost{border-color:transparent;color:var(--ink-muted)}
+
+  .field-invalid{
+    border-color:var(--warn) !important;
+    box-shadow:0 0 0 3px var(--warn-soft);
+  }
+  .pillgroup.field-invalid{
+    padding:6px;
+    border-radius:10px;
+    border:1px dashed var(--warn);
+  }
+  .field:has(> input[required]) > label::after,
+  .field:has(> select[required]) > label::after,
+  .field:has(> textarea[required]) > label::after,
+  .field:has(> .pillgroup[data-required="true"]) > label::after{
+    content:" *";
+    color:var(--warn);
+  }
+
+  .decline-box{
+    background:var(--warn-soft);
+    border:1px solid #E3C3B8;
+    border-radius:var(--radius);
+    padding:18px 20px;
+    margin-top:20px;
+    font-size:14px;
+    color:var(--ink);
+  }
+  .decline-box b{color:var(--warn)}
+  .decline-box a{color:var(--capital)}
+
+  .success-box{text-align:center;padding:40px 10px}
+  .success-box .mark{
+    width:48px;height:48px;border-radius:50%;
+    background:var(--ok-soft);
+    color:var(--ok);
+    display:flex;align-items:center;justify-content:center;
+    margin:0 auto 18px;
+    font-size:22px;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <div class="sidebar">
+    <span class="eyebrow">V17 · Apply for funding</span>
+    <h1>Capital and marketing accelerator and budget for a product that outpaces its own marketing.</h1>
+    <p class="lede">Equity, marketing-for-equity and cohort financing for B2C and B2B teams at Seed - Series A+. The application takes 5-7 minutes — we take it from there.</p>
+
+    <div class="thesis-line"><span class="thesis-tag">Segments</span><span>B2C Consumer, HealthTech, FinTech, EdTech, Wellbeing &amp; Lifestyle &middot; B2B MarTech, AI assistants and Productivity Tools, Future of Work</span></div>
+    <div class="thesis-line"><span class="thesis-tag">Stage</span><span>Seed - Series A+</span></div>
+    <div class="thesis-line"><span class="thesis-tag">MRR</span><span>from $10k (B2C) &middot; from $30k (B2B)</span></div>
+    <div class="thesis-line"><span class="thesis-tag">Markets</span><span>Global, US, Europe</span></div>
+
+    <div class="gauge-block">
+      <div class="gauge-label"><span>CAPITAL FIT</span><span>MEDIA FIT</span></div>
+      <div class="gauge-track">
+        <div class="gauge-fill-capital" id="gaugeCapital"></div>
+        <div class="gauge-fill-media" id="gaugeMedia"></div>
+      </div>
+      <div class="gauge-legend">
+        <span><i class="dot" style="background:var(--capital)"></i>unit economics</span>
+        <span><i class="dot" style="background:var(--media)"></i>traction and retention</span>
+      </div>
+      <div class="gauge-verdict" id="gaugeVerdict">Fill in the form — the score updates as you go.</div>
+    </div>
+  </div>
+
+  <div class="card">
+
+    <div class="steps">
+      <div class="step-dot active" id="dot-0"></div>
+      <div class="step-dot" id="dot-1"></div>
+      <div class="step-dot" id="dot-2"></div>
+      <div class="step-dot" id="dot-3"></div>
+    </div>
+
+    <form id="v17form" onsubmit="return false">
+
+      <!-- ШАГ 1: Quick Fit Check -->
+      <div class="step visible" data-step="0">
+        <h2>Quick fit check</h2>
+        <p class="step-sub">Four quick questions — if we're a clear mismatch, we'll say so right away and save you the time.</p>
+
+        <div class="field">
+          <label>Segment</label>
+          <div class="pillgroup" data-name="segment" data-multi="true" data-required="true">
+            <div class="pill" data-value="b2c">B2C</div>
+            <div class="pill" data-value="b2b">B2B</div>
+            <div class="pill" data-value="b2b2c">B2B2C</div>
+            <div class="pill" data-value="b2g">B2G</div>
+            <div class="pill" data-value="other">Other</div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Stage</label>
+          <div class="pillgroup" data-name="stage" data-required="true">
+            <div class="pill" data-value="preseed">Pre-Seed</div>
+            <div class="pill" data-value="seed">Seed</div>
+            <div class="pill" data-value="preseriesa">Pre-Series A</div>
+            <div class="pill" data-value="seriesa">Series A</div>
+            <div class="pill" data-value="seriesaplus">Series A+</div>
+          </div>
+        </div>
+
+        <div class="row2">
+          <div class="field">
+            <label>Current MRR, $</label>
+            <input type="text" inputmode="numeric" id="mrr" class="money" placeholder="15,000" required>
+          </div>
+          <div class="field">
+            <label>Primary market</label>
+            <div class="pillgroup" data-name="market" data-required="true">
+              <div class="pill" data-value="us">US</div>
+              <div class="pill" data-value="europe">Europe</div>
+              <div class="pill" data-value="latam">Latin America</div>
+              <div class="pill" data-value="sea">SEA</div>
+              <div class="pill" data-value="mena">MENA</div>
+              <div class="pill" data-value="china">China</div>
+              <div class="pill" data-value="other">Other</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="declineSlot"></div>
+      </div>
+
+      <!-- ШАГ 2: О компании -->
+      <div class="step" data-step="1">
+        <h2>About the company</h2>
+        <p class="step-sub">Short and to the point — we'll ask for details next.</p>
+
+        <div class="row2">
+          <div class="field">
+            <label>Company name</label>
+            <input type="text" id="company_name" required>
+          </div>
+          <div class="field">
+            <label>Website</label>
+            <input type="url" id="website" placeholder="https://" required>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Which instrument interests you</label>
+          <div class="pillgroup" data-name="interested_in" data-multi="true" data-required="true">
+            <div class="pill" data-value="investment">Equity investment</div>
+            <div class="pill" data-value="cohort">Cohort financing</div>
+            <div class="pill" data-value="media">Marketing for equity</div>
+          </div>
+          <p class="hint">Cohort financing is for teams already spending $200k+/month on marketing.</p>
+        </div>
+
+        <div class="row2" id="raiseWrap" style="display:none">
+          <div class="field">
+            <label>Amount raising, $</label>
+            <input type="text" inputmode="numeric" id="amount_raising" class="money" placeholder="500,000" required>
+          </div>
+          <div class="field">
+            <label>Post-money valuation, $</label>
+            <input type="text" inputmode="numeric" id="post_money" class="money" placeholder="7,000,000" required>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Verticals</label>
+          <div class="pillgroup" data-name="verticals" data-multi="true" data-required="true">
+            <div class="pill" data-value="HealthTech">HealthTech</div>
+            <div class="pill" data-value="Wellbeing">Wellbeing</div>
+            <div class="pill" data-value="Productivity Tools">Productivity Tools</div>
+            <div class="pill" data-value="Future of Work">Future of Work</div>
+            <div class="pill" data-value="FinTech">FinTech</div>
+            <div class="pill" data-value="EdTech">EdTech</div>
+            <div class="pill" data-value="Entertainment">Entertainment</div>
+            <div class="pill" data-value="Lifestyle">Lifestyle</div>
+            <div class="pill" data-value="MarTech">MarTech</div>
+            <div class="pill" data-value="DIY-Marketing Tools">DIY-Marketing Tools</div>
+            <div class="pill" data-value="AI Operators">AI Operators</div>
+            <div class="pill" data-value="AI Assistants for Business">AI Assistants for Business</div>
+            <div class="pill" data-value="Gaming">Gaming</div>
+            <div class="pill" data-value="Gambling / Betting">Gambling / Betting</div>
+            <div class="pill" data-value="Other">Other</div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>What you do and what problem you solve</label>
+          <textarea id="problem" placeholder="2-3 sentences" required></textarea>
+        </div>
+
+        <div class="field">
+          <label>Pitch deck link</label>
+          <input type="url" id="pitch_deck" placeholder="https://" required>
+        </div>
+
+        <div class="field">
+          <label>ICP (ideal customer profile)</label>
+          <textarea id="icp" placeholder="Who pays, why, how often" required></textarea>
+        </div>
+
+        <div class="field">
+          <label>Team</label>
+          <textarea id="team" placeholder="Founders, background and links to profiles" required></textarea>
+        </div>
+      </div>
+
+      <!-- ШАГ 3: Метрики -->
+      <div class="step" data-step="2">
+        <h2>Metrics</h2>
+        <p class="step-sub">A few numbers so we can evaluate the fit quickly.</p>
+
+        <div class="row3">
+          <div class="field"><label>Retention D30, %</label><input type="number" id="ret30" min="0" max="100" required></div>
+          <div class="field"><label>Retention D60, %</label><input type="number" id="ret60" min="0" max="100" required></div>
+          <div class="field"><label>Retention D90, %</label><input type="number" id="ret90" min="0" max="100" required></div>
+        </div>
+
+        <div class="row3">
+          <div class="field"><label>CAC, $</label><input type="number" id="cac" min="0" required></div>
+          <div class="field"><label>LTV, $</label><input type="number" id="ltv" min="0" required></div>
+          <div class="field">
+            <label style="font-weight:500;font-size:13px;color:var(--ink-soft)">Avg session, min <span style="color:var(--ink-muted);font-weight:400">(if relevant)</span></label>
+            <input type="number" id="session" min="0">
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Payback: overall period and month-by-month dynamics</label>
+          <textarea id="payback" placeholder="E.g.: overall payback 9 months, improving cohort by cohort since Q1" required></textarea>
+        </div>
+
+        <div class="row2">
+          <div class="field">
+            <label>Subscription model / monetization</label>
+            <input type="text" id="sub_model" placeholder="e.g. weekly + annual, freemium with one-time upsell" required>
+          </div>
+          <div class="field">
+            <label>% of organic traffic</label>
+            <input type="number" id="organic_pct" min="0" max="100" placeholder="e.g. 35" required>
+          </div>
+        </div>
+
+        <div class="row2">
+          <div class="field"><label>MRR and avg MoM growth, %</label><input type="text" id="mrr_growth" placeholder="e.g. $45k, +18%/mo" required></div>
+          <div class="field"><label>Marketing spend, $/month</label><input type="text" inputmode="numeric" id="marketing_spend" class="money" placeholder="20,000" required></div>
+        </div>
+      </div>
+
+      <!-- ШАГ 4: Контакты -->
+      <div class="step" data-step="3">
+        <h2>Contact info</h2>
+        <p class="step-sub">Where should we send our decision.</p>
+
+        <div class="row2">
+          <div class="field"><label>Name</label><input type="text" id="contact_name" required></div>
+          <div class="field">
+            <label>Email</label>
+            <input type="email" id="contact_email" placeholder="name@company.com" required>
+            <p class="hint">Corporate email only — no gmail, yahoo, hotmail, etc.</p>
+            <div id="emailError"></div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Anything else we should know</label>
+          <textarea id="notes"></textarea>
+        </div>
+
+        <div id="submitResult"></div>
+      </div>
+
+    </form>
+
+    <div class="nav-row">
+      <button type="button" class="ghost" id="btnBack">Back</button>
+      <button type="button" class="primary" id="btnNext">Next</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   ОТПРАВКА: SUBMIT_URL — веб-хук Google Apps Script (см. README).
+   Payload — плоский JSON по id полей + массивы для мульти-выборов.
+   ============================================================ */
+const SUBMIT_URL = "";
+const CONTACT_FALLBACK_EMAIL = "deals@v17.vc";
+
+/* Пороги quick-фильтра: чистый B2C — $10k, всё остальное — $30k. */
+const MRR_THRESHOLD_B2C = 10000;
+const MRR_THRESHOLD_DEFAULT = 30000;
+
+let currentStep = 0;
+const totalSteps = 4;
+let hardFail = false;
+
+const data = {};
+
+/* Денежные поля: разделяем тысячи запятыми при вводе. */
+function moneyValue(id){
+  const el = document.getElementById(id);
+  if(!el) return 0;
+  return parseFloat((el.value || '').replace(/[^0-9.]/g, '')) || 0;
+}
+document.querySelectorAll('input.money').forEach(function(el){
+  el.addEventListener('input', function(){
+    const digits = el.value.replace(/[^0-9]/g, '');
+    el.value = digits ? Number(digits).toLocaleString('en-US') : '';
+    data[el.id] = digits ? Number(digits) : '';
+    evaluateGate();
+    updateGauge();
+  });
+});
+
+document.querySelectorAll('.pillgroup').forEach(function(group){
+  const name = group.dataset.name;
+  const multi = group.dataset.multi === 'true';
+  if(multi) data[name] = [];
+  group.querySelectorAll('.pill').forEach(function(pill){
+    pill.addEventListener('click', function(){
+      if(multi){
+        pill.classList.toggle('selected');
+        const val = pill.dataset.value;
+        const arr = data[name] || [];
+        const idx = arr.indexOf(val);
+        if(idx === -1){ arr.push(val); } else { arr.splice(idx,1); }
+        data[name] = arr;
+        if(name === 'interested_in') updateRaiseVisibility();
+      } else {
+        group.querySelectorAll('.pill').forEach(function(p){ p.classList.remove('selected'); });
+        pill.classList.add('selected');
+        data[name] = pill.dataset.value;
+      }
+      evaluateGate();
+      updateGauge();
+    });
+  });
+});
+
+/* Amount raising / Post-money — только для Equity или Marketing for equity. */
+function updateRaiseVisibility(){
+  const sel = data.interested_in || [];
+  const show = sel.indexOf('investment') !== -1 || sel.indexOf('media') !== -1;
+  document.getElementById('raiseWrap').style.display = show ? 'grid' : 'none';
+}
+
+const FREE_EMAIL_DOMAINS = ['gmail.com','yahoo.com','hotmail.com','outlook.com','icloud.com','aol.com','mail.ru','yandex.ru','yandex.com','protonmail.com','pm.me','gmx.com','live.com','msn.com','inbox.ru','bk.ru','list.ru','yahoo.co.uk','googlemail.com'];
+let emailValid = true;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function checkEmail(){
+  const el = document.getElementById('contact_email');
+  const errSlot = document.getElementById('emailError');
+  const val = (el.value || '').trim().toLowerCase();
+  if(!val){ emailValid = true; errSlot.innerHTML = ''; el.classList.remove('field-invalid'); return; }
+  if(!EMAIL_REGEX.test(val)){
+    emailValid = false;
+    el.classList.add('field-invalid');
+    errSlot.innerHTML = '<p style="font-size:12px;color:var(--warn);margin-top:5px">Please enter a valid email address.</p>';
+    return;
+  }
+  const domain = val.split('@')[1];
+  if(FREE_EMAIL_DOMAINS.indexOf(domain) !== -1){
+    emailValid = false;
+    el.classList.add('field-invalid');
+    errSlot.innerHTML = '<p style="font-size:12px;color:var(--warn);margin-top:5px">This looks like a personal inbox — please use your company email.</p>';
+  } else {
+    emailValid = true;
+    el.classList.remove('field-invalid');
+    errSlot.innerHTML = '';
+  }
+}
+document.getElementById('contact_email').addEventListener('input', checkEmail);
+
+document.querySelectorAll('input:not(.money), textarea, select').forEach(function(el){
+  el.addEventListener('input', function(){
+    data[el.id] = el.value;
+    evaluateGate();
+    updateGauge();
+  });
+});
+
+function validateStep(i){
+  const stepEl = document.querySelector('.step[data-step="' + i + '"]');
+  let valid = true;
+  let firstInvalid = null;
+
+  stepEl.querySelectorAll('input[required], select[required], textarea[required]').forEach(function(el){
+    const fieldWrap = el.closest('.field');
+    if(fieldWrap && fieldWrap.offsetParent === null) return;
+    const filled = (el.value || '').trim() !== '';
+    el.classList.toggle('field-invalid', !filled);
+    if(!filled && !firstInvalid) firstInvalid = el;
+    if(!filled) valid = false;
+  });
+
+  stepEl.querySelectorAll('.pillgroup[data-required="true"]').forEach(function(group){
+    const fieldWrap = group.closest('.field');
+    if(fieldWrap && fieldWrap.offsetParent === null) return;
+    const val = data[group.dataset.name];
+    const filled = Array.isArray(val) ? val.length > 0 : !!val;
+    group.classList.toggle('field-invalid', !filled);
+    if(!filled && !firstInvalid) firstInvalid = group;
+    if(!filled) valid = false;
+  });
+
+  return { valid: valid, firstInvalid: firstInvalid };
+}
+
+function mrrThreshold(){
+  const seg = data.segment || [];
+  if(seg.length === 1 && seg[0] === 'b2c') return MRR_THRESHOLD_B2C;
+  if(seg.length === 0) return MRR_THRESHOLD_B2C;
+  return MRR_THRESHOLD_DEFAULT;
+}
+
+function evaluateGate(){
+  const slot = document.getElementById('declineSlot');
+  const mrr = moneyValue('mrr');
+  const seg = data.segment || [];
+  const stage = data.stage;
+
+  hardFail = false;
+  const reasons = [];
+
+  if(seg.length && mrr){
+    const threshold = mrrThreshold();
+    if(mrr < threshold){
+      hardFail = true;
+      reasons.push('MRR below threshold ($' + threshold.toLocaleString('en-US') + ' for the selected segment)');
+    }
+  }
+  if(stage === 'preseed'){
+    hardFail = true;
+    reasons.push('stage outside current target (Seed - Series A+)');
+  }
+
+  if(hardFail){
+    slot.innerHTML = '<div class="decline-box"><b>This may not match our current focus</b> — ' + reasons.join('; ') + '. You can still submit it — it will go into a separate pool for cohort financing and reconsideration, though we cannot guarantee a response.</div>';
+  } else {
+    slot.innerHTML = '';
+  }
+}
+
+function updateGauge(){
+  const mrr = moneyValue('mrr');
+  const threshold = mrrThreshold();
+  const cac = parseFloat(data.cac) || 0;
+  const ltv = parseFloat(data.ltv) || 0;
+  const ltvcac = cac > 0 ? ltv / cac : 0;
+  const ret30 = parseFloat(data.ret30) || 0;
+  const organicPct = parseFloat(data.organic_pct) || 0;
+
+  let capitalScore = 0;
+  if(mrr > 0) capitalScore += Math.min(mrr/threshold, 1) * 50;
+  if(ltvcac > 0) capitalScore += Math.min(ltvcac/2, 1) * 50;
+
+  let mediaScore = 0;
+  if(ret30 > 0) mediaScore += Math.min(ret30/30, 1) * 60;
+  mediaScore += Math.min(organicPct/30, 1) * 40;
+
+  document.getElementById('gaugeCapital').style.width = Math.round(capitalScore/2) + '%';
+  document.getElementById('gaugeMedia').style.width = Math.round(mediaScore/2) + '%';
+
+  const verdictEl = document.getElementById('gaugeVerdict');
+  if(mrr === 0 && ltvcac === 0 && ret30 === 0){
+    verdictEl.textContent = 'Fill in the form — the score updates as you go.';
+  } else if(hardFail){
+    verdictEl.textContent = 'Does not meet current fund thresholds — see the note above.';
+  } else if(capitalScore >= 70 && mediaScore >= 50){
+    verdictEl.textContent = 'Strong match — this application goes into the priority pool.';
+  } else {
+    verdictEl.textContent = 'Partial match — we will review it alongside other applications.';
+  }
+}
+
+function showStep(i){
+  document.querySelectorAll('.step').forEach(function(s){ s.classList.remove('visible'); });
+  document.querySelector('.step[data-step="' + i + '"]').classList.add('visible');
+  for(let d = 0; d < totalSteps; d++){
+    const dot = document.getElementById('dot-' + d);
+    dot.classList.remove('active', 'done');
+    if(d < i) dot.classList.add('done');
+    if(d === i) dot.classList.add('active');
+  }
+  if(i === 1) updateRaiseVisibility();
+  document.getElementById('btnBack').disabled = (i === 0);
+  document.getElementById('btnNext').textContent = (i === totalSteps - 1) ? 'Submit application' : 'Next';
+  const card = document.querySelector('.card');
+  if(card && card.scrollIntoView && i > 0) card.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+document.getElementById('btnNext').addEventListener('click', async function(){
+  const check = validateStep(currentStep);
+  if(!check.valid){
+    if(check.firstInvalid) check.firstInvalid.scrollIntoView({behavior:'smooth', block:'center'});
+    return;
+  }
+  if(currentStep < totalSteps - 1){
+    currentStep++;
+    showStep(currentStep);
+  } else {
+    checkEmail();
+    if(!emailValid){
+      document.getElementById('contact_email').focus();
+      return;
+    }
+    await submitForm();
+  }
+});
+
+document.getElementById('btnBack').addEventListener('click', function(){
+  if(currentStep > 0){ currentStep--; showStep(currentStep); }
+});
+
+async function submitForm(){
+  const btn = document.getElementById('btnNext');
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
+
+  const payload = Object.assign({}, data, {
+    mrr: moneyValue('mrr'),
+    amount_raising: moneyValue('amount_raising'),
+    post_money: moneyValue('post_money'),
+    marketing_spend: moneyValue('marketing_spend'),
+    hard_filter_failed: hardFail,
+    submitted_at: new Date().toISOString(),
+    source: 'site_form'
+  });
+
+  try{
+    if(SUBMIT_URL){
+      await fetch(SUBMIT_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'text/plain;charset=utf-8'},
+        body: JSON.stringify(payload)
+      });
+    } else {
+      console.log('SUBMIT_URL not configured — payload:', payload);
+    }
+    document.querySelector('.card').innerHTML = '<div class="success-box"><div class="mark">&#10003;</div><h2>Application submitted</h2><p class="step-sub">We will look at the numbers and get back to you. If your application fits our criteria, we will reach out within a few weeks. Please do not be discouraged if you do not hear back from us — those are just our current focus areas, not a judgment on your company.</p></div>';
+  } catch(err){
+    document.getElementById('submitResult').innerHTML = '<div class="decline-box">Something went wrong — please try again or email <a href="mailto:' + CONTACT_FALLBACK_EMAIL + '">' + CONTACT_FALLBACK_EMAIL + '</a>.</div>';
+    btn.disabled = false;
+    btn.textContent = 'Submit application';
+  }
+}
+
+showStep(0);
+</script>
+
+</body>
+</html>
