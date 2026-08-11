@@ -86,9 +86,11 @@ var DECLINE_TEMPLATES = [
 function doPost(e) {
   try {
     var body = JSON.parse(e.postData.contents);
-    // Любой апдейт Telegram (callback, служебные события) имеет update_id.
+    // Апдейты Telegram сюда больше не приходят (webhook не используем —
+    // GAS отвечает на POST редиректом 302, Telegram считает это ошибкой
+    // и зацикливает повторы). Кнопки обрабатывает pollTelegram по таймеру.
     if (body.update_id !== undefined) {
-      return handleTelegramUpdate(body);
+      return jsonResponse({ ok: true, ignored: 'telegram update' });
     }
     // Заявка обязана содержать хотя бы название компании или email.
     if (!body.company_name && !body.contact_email) {
@@ -337,10 +339,26 @@ function notifyTelegram(d, rowNum, notionUrl) {
   });
 }
 
-function handleTelegramUpdate(update) {
-  var cb = update.callback_query;
-  if (!cb) return jsonResponse({ ok: true }); // обычные сообщения игнорируем
+/* Опрос Telegram по таймеру (каждую минуту). Забирает нажатия кнопок
+   через getUpdates и обрабатывает их. Оффсет хранится в Script Properties,
+   поэтому каждое нажатие обрабатывается ровно один раз. */
+function pollTelegram() {
+  if (!CONFIG.TELEGRAM_TOKEN) return;
+  var props = PropertiesService.getScriptProperties();
+  var offset = Number(props.getProperty('tg_offset') || 0);
+  var resp = tg('getUpdates', { offset: offset + 1, allowed_updates: ['callback_query'] });
+  var out = JSON.parse(resp.getContentText());
+  if (!out.ok) return;
+  out.result.forEach(function (u) {
+    if (u.update_id > offset) offset = u.update_id;
+    if (u.callback_query) {
+      try { handleCallback(u.callback_query); } catch (e) { /* не роняем остальные */ }
+    }
+  });
+  props.setProperty('tg_offset', String(offset));
+}
 
+function handleCallback(cb) {
   var parts = (cb.data || '').split(':');
   var kind = parts[0];
   var rowNum = parseInt(parts[1], 10);
@@ -351,7 +369,7 @@ function handleTelegramUpdate(update) {
     sheet.getRange(rowNum, statusCol).setValue('in progress');
     tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Помечено: в работе' });
     appendToMessage(cb, '\n\n✔️ <b>Взято в работу</b> (' + esc(cb.from.first_name || '') + ')');
-    return jsonResponse({ ok: true });
+    return;
   }
 
   if (kind === 'd') {
@@ -364,7 +382,7 @@ function handleTelegramUpdate(update) {
 
     if (!email || !tpl) {
       tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Нет email или шаблона', show_alert: true });
-      return jsonResponse({ ok: true });
+      return;
     }
 
     var fill = function (s) {
@@ -378,8 +396,6 @@ function handleTelegramUpdate(update) {
     tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Отказ отправлен на ' + email });
     appendToMessage(cb, '\n\n❌ <b>Отказ отправлен</b> («' + esc(tpl.label) + '», ' + esc(cb.from.first_name || '') + ')');
   }
-
-  return jsonResponse({ ok: true });
 }
 
 function appendToMessage(cb, suffix) {
@@ -406,11 +422,18 @@ function jsonResponse(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-/* Одноразовый запуск после деплоя: регистрирует webhook Telegram на URL веб-приложения.
-   Перед запуском вписать URL деплоя (заканчивается на /exec). */
-function setupTelegramWebhook() {
-  var WEB_APP_URL = ''; // ← вставить URL веб-приложения
-  if (!WEB_APP_URL) throw new Error('Впиши WEB_APP_URL');
-  var resp = tg('setWebhook', { url: WEB_APP_URL, allowed_updates: ['callback_query'] });
-  Logger.log(resp.getContentText());
+/* Одноразовый запуск: включает обработку кнопок Telegram.
+   Удаляет webhook (несовместим с GAS — тот отвечает 302, Telegram зацикливает
+   повторы) и ставит таймер, который раз в минуту опрашивает getUpdates. */
+function setupTelegramPolling() {
+  if (!CONFIG.TELEGRAM_TOKEN) throw new Error('Сначала впиши TELEGRAM_TOKEN в CONFIG');
+  tg('deleteWebhook', { drop_pending_updates: true });
+
+  var exists = ScriptApp.getProjectTriggers().some(function (t) {
+    return t.getHandlerFunction() === 'pollTelegram';
+  });
+  if (!exists) {
+    ScriptApp.newTrigger('pollTelegram').timeBased().everyMinutes(1).create();
+  }
+  Logger.log('Polling включён: триггер pollTelegram раз в минуту.');
 }
