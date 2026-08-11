@@ -501,9 +501,12 @@
 const SUBMIT_URL = "";
 const CONTACT_FALLBACK_EMAIL = "deals@v17.vc";
 
-/* Пороги quick-фильтра: чистый B2C — $10k, всё остальное — $30k. */
-const MRR_THRESHOLD_B2C = 10000;
-const MRR_THRESHOLD_DEFAULT = 30000;
+/* Пороги и вертикали по умолчанию. Если настроен SUBMIT_URL, реальные значения
+   подтягиваются из листа «Settings» Google Таблицы (см. loadConfig ниже) —
+   их можно менять без программиста. */
+let MRR_THRESHOLD_B2C = 10000;
+let MRR_THRESHOLD_DEFAULT = 30000;
+let PRESEED_AUTO_DECLINE = true;
 
 let currentStep = 0;
 const totalSteps = 4;
@@ -527,10 +530,10 @@ document.querySelectorAll('input.money').forEach(function(el){
   });
 });
 
-document.querySelectorAll('.pillgroup').forEach(function(group){
+function bindPillGroup(group){
   const name = group.dataset.name;
   const multi = group.dataset.multi === 'true';
-  if(multi) data[name] = [];
+  if(multi && !Array.isArray(data[name])) data[name] = [];
   group.querySelectorAll('.pill').forEach(function(pill){
     pill.addEventListener('click', function(){
       if(multi){
@@ -550,7 +553,34 @@ document.querySelectorAll('.pillgroup').forEach(function(group){
       updateGauge();
     });
   });
-});
+}
+document.querySelectorAll('.pillgroup').forEach(bindPillGroup);
+
+/* Пороги, правило Pre-Seed и список вертикалей — из листа «Settings» таблицы. */
+async function loadConfig(){
+  if(!SUBMIT_URL) return;
+  try{
+    const resp = await fetch(SUBMIT_URL + '?action=config');
+    const cfg = await resp.json();
+    if(!cfg || !cfg.ok) return;
+    if(cfg.thresholds){
+      MRR_THRESHOLD_B2C = cfg.thresholds.b2c || MRR_THRESHOLD_B2C;
+      MRR_THRESHOLD_DEFAULT = cfg.thresholds.other || MRR_THRESHOLD_DEFAULT;
+    }
+    if(typeof cfg.preseed_auto_decline === 'boolean') PRESEED_AUTO_DECLINE = cfg.preseed_auto_decline;
+    if(Array.isArray(cfg.verticals) && cfg.verticals.length){
+      const group = document.querySelector('.pillgroup[data-name="verticals"]');
+      group.innerHTML = cfg.verticals.map(function(v){
+        return '<div class="pill" data-value="' + v.replace(/"/g,'&quot;') + '">' + v + '</div>';
+      }).join('');
+      data.verticals = [];
+      bindPillGroup(group);
+    }
+    evaluateGate();
+    updateGauge();
+  }catch(e){ /* остаёмся на значениях по умолчанию */ }
+}
+loadConfig();
 
 /* Amount raising / Post-money — только для Equity или Marketing for equity. */
 function updateRaiseVisibility(){
@@ -645,7 +675,7 @@ function evaluateGate(){
       reasons.push('MRR below threshold ($' + threshold.toLocaleString('en-US') + ' for the selected segment)');
     }
   }
-  if(stage === 'preseed'){
+  if(stage === 'preseed' && PRESEED_AUTO_DECLINE){
     hardFail = true;
     reasons.push('stage outside current target (Seed - Series A+)');
   }

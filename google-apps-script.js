@@ -30,10 +30,28 @@ var CONFIG = {
   MAIL_FROM_ALIAS: '',
   MAIL_FROM_NAME: 'V17 Team',
 
-  SHEET_NAME: 'Applications'
+  SHEET_NAME: 'Applications',
+  SETTINGS_SHEET: 'Settings',
+  TEMPLATES_SHEET: 'Decline templates'
 };
 
-/* Шаблоны отказов. {{name}} и {{company}} подставляются автоматически. */
+/* ==========================================================================
+   НАСТРОЙКИ БЕЗ ПРОГРАММИСТА.
+   При первом запуске скрипт сам создаёт листы «Settings» (ключ / значение)
+   и «Decline templates» (Label / Subject / Body) с значениями по умолчанию.
+   Дальше пороги MRR, список вертикалей и тексты отказов правятся прямо
+   в таблице — форма подтягивает их при каждой загрузке страницы,
+   письма-отказы читают тексты в момент отправки. Ничего передеплоивать не надо.
+   ========================================================================== */
+var DEFAULT_SETTINGS = [
+  ['MRR_THRESHOLD_B2C', 10000, 'Порог MRR, если выбран ТОЛЬКО B2C'],
+  ['MRR_THRESHOLD_OTHER', 30000, 'Порог MRR для остальных/смешанных сегментов (B2B, B2B2C, B2G, Other)'],
+  ['PRESEED_AUTO_DECLINE', 'yes', 'Pre-Seed получает мягкий автоотказ (yes/no)'],
+  ['VERTICALS', 'HealthTech, Wellbeing, Productivity Tools, Future of Work, FinTech, EdTech, Entertainment, Lifestyle, MarTech, DIY-Marketing Tools, AI Operators, AI Assistants for Business, Gaming, Gambling / Betting, Other', 'Список вертикалей через запятую — порядок сохраняется на форме']
+];
+
+/* Стартовые шаблоны отказов — копируются в лист «Decline templates» при первом
+   запуске, дальше источник истины — таблица. {{name}} и {{company}} подставляются. */
 var DECLINE_TEMPLATES = [
   {
     label: 'Not a fit now',
@@ -77,8 +95,61 @@ function doPost(e) {
   }
 }
 
-function doGet() {
+function doGet(e) {
+  if (e && e.parameter && e.parameter.action === 'config') {
+    var s = getSettings();
+    return jsonResponse({
+      ok: true,
+      thresholds: {
+        b2c: Number(s.MRR_THRESHOLD_B2C) || 10000,
+        other: Number(s.MRR_THRESHOLD_OTHER) || 30000
+      },
+      preseed_auto_decline: String(s.PRESEED_AUTO_DECLINE || 'yes').toLowerCase() !== 'no',
+      verticals: String(s.VERTICALS || '').split(',').map(function (v) { return v.trim(); }).filter(Boolean)
+    });
+  }
   return jsonResponse({ ok: true, service: 'v17-apply', time: new Date().toISOString() });
+}
+
+/* ==================== настройки и шаблоны из таблицы ==================== */
+
+function getSettings() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.SETTINGS_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(CONFIG.SETTINGS_SHEET);
+    sheet.getRange(1, 1, 1, 3).setValues([['Ключ (не менять)', 'Значение (можно менять)', 'Что это']]);
+    sheet.getRange(2, 1, DEFAULT_SETTINGS.length, 3).setValues(DEFAULT_SETTINGS);
+    sheet.setFrozenRows(1);
+    sheet.autoResizeColumns(1, 3);
+  }
+  var rows = sheet.getDataRange().getValues();
+  var out = {};
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][0]) out[String(rows[i][0]).trim()] = rows[i][1];
+  }
+  return out;
+}
+
+function getDeclineTemplates() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.TEMPLATES_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(CONFIG.TEMPLATES_SHEET);
+    sheet.getRange(1, 1, 1, 3).setValues([['Label (кнопка в TG)', 'Subject', 'Body ({{name}}, {{company}})']]);
+    var seed = DECLINE_TEMPLATES.map(function (t) { return [t.label, t.subject, t.body]; });
+    sheet.getRange(2, 1, seed.length, 3).setValues(seed);
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidth(3, 600);
+  }
+  var rows = sheet.getDataRange().getValues();
+  var out = [];
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][0] && rows[i][2]) {
+      out.push({ label: String(rows[i][0]), subject: String(rows[i][1] || 'V17 — your application'), body: String(rows[i][2]) });
+    }
+  }
+  return out.length ? out : DECLINE_TEMPLATES;
 }
 
 /* ============================ заявка с формы ============================ */
@@ -246,7 +317,7 @@ function notifyTelegram(d, rowNum, notionUrl) {
   ];
 
   var keyboard = { inline_keyboard: [
-    DECLINE_TEMPLATES.map(function (t, i) {
+    getDeclineTemplates().map(function (t, i) {
       return { text: '✉️ Отказ: ' + t.label, callback_data: 'd:' + rowNum + ':' + i };
     }),
     [{ text: '✔️ Взяли в работу', callback_data: 'p:' + rowNum }]
@@ -280,7 +351,7 @@ function handleTelegramUpdate(update) {
 
   if (kind === 'd') {
     var tplIdx = parseInt(parts[2], 10);
-    var tpl = DECLINE_TEMPLATES[tplIdx];
+    var tpl = getDeclineTemplates()[tplIdx];
     var row = sheet.getRange(rowNum, 1, 1, SHEET_HEADERS.length).getValues()[0];
     var email = row[SHEET_HEADERS.indexOf('Contact email')];
     var name = row[SHEET_HEADERS.indexOf('Contact name')] || 'there';
