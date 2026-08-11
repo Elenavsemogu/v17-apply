@@ -29,6 +29,9 @@ var CONFIG = {
   // либо ящик добавлен алиасом в Gmail владельца скрипта.
   MAIL_FROM_ALIAS: '',
   MAIL_FROM_NAME: 'V17 Team',
+  // Куда уходят ответы кандидатов на письма-отказы. Работает даже если письмо
+  // отправлено с личного ящика: кандидат жмёт Reply — и ответ идёт команде.
+  MAIL_REPLY_TO: 'deals@v17.vc',
 
   SHEET_NAME: 'Applications',
   SETTINGS_SHEET: 'Settings',
@@ -438,6 +441,7 @@ function handleCallback(cb) {
     };
     var mailOpts = { name: CONFIG.MAIL_FROM_NAME };
     if (CONFIG.MAIL_FROM_ALIAS) mailOpts.from = CONFIG.MAIL_FROM_ALIAS;
+    if (CONFIG.MAIL_REPLY_TO) mailOpts.replyTo = CONFIG.MAIL_REPLY_TO;
     GmailApp.sendEmail(email, fill(tpl.subject), fill(tpl.body), mailOpts);
 
     sheet.getRange(rowNum, statusCol).setValue('declined (' + tpl.label + ')');
