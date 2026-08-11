@@ -6,28 +6,31 @@
 <title>V17 — Apply for funding</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  /* Палитра и типографика — под фирменный стиль v17.vc:
+     кремовый фон, фирменный красный, геометричный гротеск. */
   :root{
-    --paper:#F5F6F2;
+    --paper:#F5F0EA;
     --paper-raised:#FFFFFF;
-    --ink:#171B24;
-    --ink-soft:#4B5163;
-    --ink-muted:#8B90A0;
-    --line:#DEDDD3;
-    --capital:#1F4E8C;
-    --capital-soft:#E7EEF7;
-    --media:#C97F1E;
-    --media-soft:#F7ECDA;
+    --ink:#1B1B1B;
+    --ink-soft:#4A4A4A;
+    --ink-muted:#98928A;
+    --line:#E2DCD2;
+    --capital:#C1272D;
+    --capital-soft:#F6E4E2;
+    --media:#1B1B1B;
+    --media-soft:#E9E4DD;
     --ok:#2F7D5B;
     --ok-soft:#E6F1EB;
     --warn:#B4432F;
     --warn-soft:#F7E7E3;
-    --radius:10px;
+    --radius:6px;
+    --font:'Jost','Century Gothic','Futura',sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{
-    font-family:'Inter',sans-serif;
+    font-family:var(--font);
     background:var(--paper);
     color:var(--ink);
     line-height:1.55;
@@ -48,20 +51,20 @@
 
   .sidebar{position:sticky;top:40px;align-self:start}
   .eyebrow{
-    font-family:'IBM Plex Mono',monospace;
-    font-size:11px;
-    letter-spacing:.08em;
+    font-size:12px;
+    font-weight:600;
+    letter-spacing:.14em;
     text-transform:uppercase;
-    color:var(--ink-muted);
+    color:var(--capital);
     margin-bottom:14px;
     display:block;
   }
   h1{
-    font-family:'Fraunces',serif;
-    font-weight:500;
-    font-size:34px;
-    line-height:1.12;
+    font-weight:700;
+    font-size:32px;
+    line-height:1.1;
     letter-spacing:-.01em;
+    color:var(--capital);
     margin-bottom:16px;
   }
   .lede{
@@ -79,18 +82,21 @@
   }
   .thesis-line:last-of-type{border-bottom:1px solid var(--line)}
   .thesis-tag{
-    font-family:'IBM Plex Mono',monospace;
     font-size:11px;
+    font-weight:600;
+    letter-spacing:.1em;
+    text-transform:uppercase;
     color:var(--ink-muted);
-    min-width:64px;
+    min-width:74px;
   }
 
   .gauge-block{margin-top:32px}
   .gauge-label{
     display:flex;
     justify-content:space-between;
-    font-family:'IBM Plex Mono',monospace;
     font-size:11px;
+    font-weight:600;
+    letter-spacing:.1em;
     color:var(--ink-muted);
     margin-bottom:8px;
   }
@@ -98,7 +104,7 @@
     height:10px;
     background:var(--paper-raised);
     border:1px solid var(--line);
-    border-radius:6px;
+    border-radius:3px;
     overflow:hidden;
     display:flex;
   }
@@ -126,7 +132,7 @@
   .card{
     background:var(--paper-raised);
     border:1px solid var(--line);
-    border-radius:16px;
+    border-radius:8px;
     padding:36px 40px;
   }
   @media (max-width:600px){.card{padding:24px 20px}}
@@ -134,15 +140,15 @@
   .steps{display:flex;gap:6px;margin-bottom:32px}
   .step-dot{flex:1;height:3px;background:var(--line);border-radius:2px;transition:background .3s ease}
   .step-dot.active{background:var(--capital)}
-  .step-dot.done{background:var(--media)}
+  .step-dot.done{background:var(--ink)}
 
   .step{display:none}
   .step.visible{display:block}
 
   h2{
-    font-family:'Fraunces',serif;
-    font-weight:500;
-    font-size:22px;
+    font-weight:700;
+    font-size:24px;
+    color:var(--capital);
     margin-bottom:6px;
   }
   .step-sub{color:var(--ink-muted);font-size:13px;margin-bottom:28px}
@@ -160,9 +166,9 @@
     width:100%;
     padding:11px 13px;
     border:1px solid var(--line);
-    border-radius:8px;
+    border-radius:4px;
     background:var(--paper);
-    font-family:'Inter',sans-serif;
+    font-family:var(--font);
     font-size:14px;
     color:var(--ink);
   }
@@ -178,14 +184,16 @@
 
   .pillgroup{display:flex;gap:8px;flex-wrap:wrap}
   .pill{
-    padding:8px 14px;
-    border-radius:20px;
+    padding:8px 16px;
+    border-radius:4px;
     border:1px solid var(--line);
-    background:var(--paper);
+    background:var(--paper-raised);
     font-size:13px;
+    font-weight:500;
     cursor:pointer;
     transition:all .15s ease;
   }
+  .pill:hover{border-color:var(--capital)}
   .pill.selected{background:var(--capital);border-color:var(--capital);color:#fff}
 
   .nav-row{
@@ -197,18 +205,20 @@
     border-top:1px solid var(--line);
   }
   button{
-    font-family:'Inter',sans-serif;
-    font-size:14px;
-    font-weight:500;
-    padding:11px 22px;
-    border-radius:8px;
+    font-family:var(--font);
+    font-size:13px;
+    font-weight:600;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    padding:13px 26px;
+    border-radius:3px;
     cursor:pointer;
     border:1px solid var(--line);
     background:transparent;
     color:var(--ink);
   }
-  button.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
-  button.primary:hover{opacity:.9}
+  button.primary{background:var(--capital);color:#fff;border-color:var(--capital)}
+  button.primary:hover{background:#A81F25;border-color:#A81F25}
   button:disabled{opacity:.4;cursor:not-allowed}
   button.ghost{border-color:transparent;color:var(--ink-muted)}
 
