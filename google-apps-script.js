@@ -323,11 +323,15 @@ function notifyTelegram(d, rowNum, notionUrl) {
     (notionUrl ? '📄 <a href="' + notionUrl + '">Открыть в Notion</a>' : '')
   ];
 
+  /* В callback_data кладём номер строки + отпечаток email. Если строки
+     в таблице удалят/отсортируют и номер «съедет», строка будет найдена
+     заново по отпечатку — письмо не уйдёт не тому человеку. */
+  var key = rowKey(d.contact_email, d.company_name);
   var keyboard = { inline_keyboard: [
     getDeclineTemplates().map(function (t, i) {
-      return { text: '✉️ Отказ: ' + t.label, callback_data: 'd:' + rowNum + ':' + i };
+      return { text: '✉️ Отказ: ' + t.label, callback_data: 'd:' + rowNum + ':' + i + ':' + key };
     }),
-    [{ text: '✔️ Взяли в работу', callback_data: 'p:' + rowNum }]
+    [{ text: '✔️ Взяли в работу', callback_data: 'p:' + rowNum + ':' + key }]
   ]};
 
   tg('sendMessage', {
@@ -358,14 +362,51 @@ function pollTelegram() {
   props.setProperty('tg_offset', String(offset));
 }
 
+/* Короткий отпечаток заявки (email+компания) для проверки, что номер строки
+   всё ещё указывает на ту же заявку. */
+function rowKey(email, company) {
+  var raw = String(email || '') + '|' + String(company || '');
+  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, raw, Utilities.Charset.UTF_8);
+  var hex = '';
+  for (var i = 0; i < 4; i++) {
+    hex += ((digest[i] + 256) % 256).toString(16).padStart(2, '0');
+  }
+  return hex;
+}
+
+/* Находит строку заявки: сначала проверяет сохранённый номер, при несовпадении
+   отпечатка ищет по всей таблице. Возвращает номер строки или 0. */
+function findRow(sheet, rowNum, key) {
+  var emailCol = SHEET_HEADERS.indexOf('Contact email');
+  var companyCol = SHEET_HEADERS.indexOf('Company');
+  var last = sheet.getLastRow();
+  if (rowNum >= 2 && rowNum <= last) {
+    var row = sheet.getRange(rowNum, 1, 1, SHEET_HEADERS.length).getValues()[0];
+    if (rowKey(row[emailCol], row[companyCol]) === key) return rowNum;
+  }
+  if (last < 2) return 0;
+  var all = sheet.getRange(2, 1, last - 1, SHEET_HEADERS.length).getValues();
+  for (var i = 0; i < all.length; i++) {
+    if (rowKey(all[i][emailCol], all[i][companyCol]) === key) return i + 2;
+  }
+  return 0;
+}
+
 function handleCallback(cb) {
   var parts = (cb.data || '').split(':');
   var kind = parts[0];
-  var rowNum = parseInt(parts[1], 10);
   var sheet = getSheet();
   var statusCol = SHEET_HEADERS.indexOf('Status') + 1;
+  var rowNum, key;
 
   if (kind === 'p') {
+    rowNum = parseInt(parts[1], 10);
+    key = parts[2];
+    if (key) rowNum = findRow(sheet, rowNum, key);
+    if (!rowNum) {
+      tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Строка заявки не найдена (удалена?)', show_alert: true });
+      return;
+    }
     sheet.getRange(rowNum, statusCol).setValue('in progress');
     tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Помечено: в работе' });
     appendToMessage(cb, '\n\n✔️ <b>Взято в работу</b> (' + esc(cb.from.first_name || '') + ')');
@@ -373,8 +414,15 @@ function handleCallback(cb) {
   }
 
   if (kind === 'd') {
+    rowNum = parseInt(parts[1], 10);
     var tplIdx = parseInt(parts[2], 10);
+    key = parts[3];
     var tpl = getDeclineTemplates()[tplIdx];
+    if (key) rowNum = findRow(sheet, rowNum, key);
+    if (!rowNum) {
+      tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Строка заявки не найдена (удалена?)', show_alert: true });
+      return;
+    }
     var row = sheet.getRange(rowNum, 1, 1, SHEET_HEADERS.length).getValues()[0];
     var email = row[SHEET_HEADERS.indexOf('Contact email')];
     var name = row[SHEET_HEADERS.indexOf('Contact name')] || 'there';
