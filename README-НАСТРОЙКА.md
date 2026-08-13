@@ -30,20 +30,18 @@ Pre-Seed и список вертикалей; в «Decline templates» — кн
 4. Развернуть → Новое развертывание → **Веб-приложение**,
    «Выполнять как: Я», «Доступ: Все» → скопировать URL (`…/exec`)
 
-### 2. Notion (когда дадут доступ)
-1. [notion.so/my-integrations](https://notion.so/my-integrations) → New integration
-   (workspace заказчика) → скопировать токен в `CONFIG.NOTION_TOKEN`
-2. Создать в Notion базу-таблицу со свойствами (имена должны совпадать!):
-   `Company` (Title), `Website` (URL), `Segment` (Multi-select), `Stage` (Select),
-   `Primary Market` (Select), `MRR (USD)` (Number), `Interested In` (Multi-select),
-   `Amount Raising (USD)` (Number), `Post-Money (USD)` (Number), `Verticals` (Multi-select),
-   `Pitch Deck` (URL), `Retention D30 (%)`/`D60`/`D90` (Number), `CAC (USD)` (Number),
-   `LTV (USD)` (Number), `Payback` (Text), `Monetization` (Text), `Organic Traffic (%)` (Number),
-   `MRR Growth` (Text), `Marketing Spend (USD/mo)` (Number), `Contact Name` (Text),
-   `Contact Email` (Email), `Hard Filter Failed` (Checkbox), `Status` (Select)
-3. На странице базы: ⋯ → Connections → добавить созданную интеграцию
-4. ID базы (32 символа из URL) → `CONFIG.NOTION_DATABASE_ID`
-5. Пере-развернуть скрипт (Управление развёртываниями → ✏️ → Новая версия)
+### 2. Notion ✅ (подключено 13.08)
+1. ✅ Токен интеграции выдал заказчик (в `ACCESS-HOSTING.md`, секция V17;
+   в этот публичный репозиторий не класть!) → `CONFIG.NOTION_TOKEN`
+2. ✅ Заявки пишутся прямо в CRM заказчика — база **«V17 dealflow»**
+   (создавать отдельную базу не нужно). Скрипт мапит поля формы на их колонки:
+   `Name` ← компания, `Email`, `Type` ← сегмент, `Industry` ← вертикали,
+   `Revenue` ← MRR, `Estimated Value` ← сумма раунда, `Financing` ← инструмент,
+   `Lead Source` = «Website form»; остальное (метрики, ICP, команда, питчдек) —
+   в тело карточки. Не прошедшие фильтр помечаются ⚠️ в названии.
+3. `CONFIG.NOTION_DATA_SOURCE_ID` — id источника данных базы (не самой базы;
+   у «V17 dealflow» их два, нужен основной — значение в `ACCESS-HOSTING.md`).
+4. Пере-развернуть скрипт (Управление развёртываниями → ✏️ → Новая версия)
 
 ### 3. Telegram (5 мин)
 1. ✅ Бот создан: `@V17_Applications_Bot`, токен — в `ACCESS-HOSTING.md`

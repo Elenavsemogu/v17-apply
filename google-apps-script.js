@@ -16,9 +16,10 @@
  */
 
 var CONFIG = {
-  // Notion: интеграция и база. Оставить пустым — писать только в таблицу.
-  NOTION_TOKEN: '',        // secret_... (из notion.so/my-integrations)
-  NOTION_DATABASE_ID: '',  // 32 символа из URL базы
+  // Notion: токен интеграции и data source базы «V17 dealflow».
+  // Оставить пустым — писать только в таблицу.
+  NOTION_TOKEN: '',           // ntn_... (выдал заказчик)
+  NOTION_DATA_SOURCE_ID: '',  // id источника данных базы (не самой базы!)
 
   // Telegram
   TELEGRAM_TOKEN: '',      // токен бота от @BotFather
@@ -222,48 +223,78 @@ function handleFormSubmission(d) {
   return jsonResponse({ ok: true });
 }
 
-/* ============================ Notion ============================ */
+/* ============================ Notion ============================
+   Заявка становится карточкой в CRM заказчика «V17 dealflow».
+   Маппинг на их реальные колонки (у 'Industry ' и 'Revenue ' в названии
+   хвостовой пробел — так в их базе, не «чинить»!):
+     Name ← компания · Email ← email · Type ← сегмент · Industry ← вертикали
+     Revenue ← MRR · Estimated Value ← сумма раунда · Financing ← инструмент
+     Lead Source ← 'Website form'. Остальные детали — в тело карточки. */
 
 function createNotionPage(d) {
-  if (!CONFIG.NOTION_TOKEN || !CONFIG.NOTION_DATABASE_ID) return '';
+  if (!CONFIG.NOTION_TOKEN || !CONFIG.NOTION_DATA_SOURCE_ID) return '';
 
-  var joined = function (v) { return Array.isArray(v) ? v.join(', ') : (v || ''); };
   var rt = function (s) { return [{ text: { content: String(s || '').slice(0, 1900) } }]; };
   var num = function (v) { var n = parseFloat(v); return isNaN(n) ? null : n; };
-  var multi = function (v) {
-    return (Array.isArray(v) ? v : (v ? [v] : [])).map(function (x) { return { name: String(x) }; });
-  };
 
-  // Названия свойств должны совпадать с колонками базы в Notion (см. README, шаг 2).
+  // Сегменты формы → варианты их селекта Type.
+  var seg = (d.segment || []).map(function (s) { return String(s).toLowerCase(); });
+  var type = null;
+  if (seg.indexOf('b2b2c') !== -1) type = 'B2B2C';
+  else if (seg.indexOf('b2b') !== -1 && seg.indexOf('b2c') !== -1) type = 'B2B & B2C';
+  else if (seg.indexOf('b2c') !== -1) type = 'B2C';
+  else if (seg.indexOf('b2b') !== -1) type = 'B2B';
+  else if (seg.length) type = seg[0].toUpperCase();
+
+  // Наши вертикали → их опции Industry (несовпадающие Notion создаст сам).
+  var industryRename = { 'Productivity Tools': 'Productivity tools' };
+  var industries = (d.verticals || []).map(function (v) {
+    return { name: industryRename[v] || v };
+  });
+
+  var finMap = { investment: 'Equity', cohort: 'Cohort financing', media: 'Marketing for equity' };
+  var financing = (d.interested_in || []).map(function (v) { return { name: finMap[v] || v }; });
+
   var properties = {
-    'Company':               { title: rt(d.company_name || '(no name)') },
-    'Website':               { url: d.website || null },
-    'Segment':               { multi_select: multi((d.segment || []).map(function (s) { return String(s).toUpperCase(); })) },
-    'Stage':                 { select: d.stage ? { name: d.stage } : null },
-    'Primary Market':        { select: d.market ? { name: d.market } : null },
-    'MRR (USD)':             { number: num(d.mrr) },
-    'Interested In':         { multi_select: multi(d.interested_in) },
-    'Amount Raising (USD)':  { number: num(d.amount_raising) },
-    'Post-Money (USD)':      { number: num(d.post_money) },
-    'Verticals':             { multi_select: multi(d.verticals) },
-    'Pitch Deck':            { url: d.pitch_deck || null },
-    'Retention D30 (%)':     { number: num(d.ret30) },
-    'Retention D60 (%)':     { number: num(d.ret60) },
-    'Retention D90 (%)':     { number: num(d.ret90) },
-    'CAC (USD)':             { number: num(d.cac) },
-    'LTV (USD)':             { number: num(d.ltv) },
-    'Payback':               { rich_text: rt(d.payback) },
-    'Monetization':          { rich_text: rt(d.sub_model) },
-    'Organic Traffic (%)':   { number: num(d.organic_pct) },
-    'MRR Growth':            { rich_text: rt(d.mrr_growth) },
-    'Marketing Spend (USD/mo)': { number: num(d.marketing_spend) },
-    'Contact Name':          { rich_text: rt(d.contact_name) },
-    'Contact Email':         { email: d.contact_email || null },
-    'Hard Filter Failed':    { checkbox: !!d.hard_filter_failed },
-    'Status':                { select: { name: 'New' } }
+    'Name':            { title: rt((d.hard_filter_failed ? '⚠️ ' : '') + (d.company_name || '(no name)')) },
+    'Email':           { email: d.contact_email || null },
+    'Revenue ':        { number: num(d.mrr) },
+    'Estimated Value': { number: num(d.amount_raising) },
+    'Lead Source':     { select: { name: 'Website form' } }
   };
+  if (type) properties['Type'] = { select: { name: type } };
+  if (industries.length) properties['Industry '] = { multi_select: industries };
+  if (financing.length) properties['Financing'] = { multi_select: financing };
 
   var children = [];
+  if (d.hard_filter_failed) {
+    children.push({ callout: {
+      icon: { emoji: '⚠️' },
+      rich_text: rt('Did NOT pass the quick filter (MRR/stage below thresholds). Separate pool / cohort financing.')
+    }});
+  }
+  var line = function (label, value) {
+    if (value === undefined || value === null || value === '') return;
+    children.push({ bulleted_list_item: { rich_text: [
+      { text: { content: label + ': ' }, annotations: { bold: true } },
+      { text: { content: String(value).slice(0, 1800) } }
+    ]}});
+  };
+  line('Website', d.website);
+  line('Stage', d.stage);
+  line('Primary market', d.market);
+  line('Post-money, $', d.post_money);
+  line('Pitch deck', d.pitch_deck);
+  line('Contact', (d.contact_name || '') + ' · ' + (d.contact_email || ''));
+  children.push({ heading_3: { rich_text: rt('Metrics') } });
+  line('Retention D30/D60/D90, %', (d.ret30 || '—') + ' / ' + (d.ret60 || '—') + ' / ' + (d.ret90 || '—'));
+  line('CAC / LTV, $', (d.cac || '—') + ' / ' + (d.ltv || '—'));
+  line('Avg session, min', d.session);
+  line('Payback', d.payback);
+  line('Monetization', d.sub_model);
+  line('Organic traffic, %', d.organic_pct);
+  line('MRR & MoM growth', d.mrr_growth);
+  line('Marketing spend, $/mo', d.marketing_spend);
   var block = function (title, text) {
     if (!text) return;
     children.push({ heading_3: { rich_text: rt(title) } });
@@ -279,10 +310,10 @@ function createNotionPage(d) {
     contentType: 'application/json',
     headers: {
       'Authorization': 'Bearer ' + CONFIG.NOTION_TOKEN,
-      'Notion-Version': '2022-06-28'
+      'Notion-Version': '2025-09-03'
     },
     payload: JSON.stringify({
-      parent: { database_id: CONFIG.NOTION_DATABASE_ID },
+      parent: { type: 'data_source_id', data_source_id: CONFIG.NOTION_DATA_SOURCE_ID },
       properties: properties,
       children: children
     }),
