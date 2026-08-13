@@ -856,17 +856,18 @@ showStep(0);
 /* При встраивании в iframe сообщаем родителю свою высоту,
    чтобы страница Тильды подгоняла iframe без внутреннего скролла. */
 if (window.parent !== window) {
-  var v17LastH = 0;
+  var v17LastH = 0, v17LastVp = 0;
   var v17SendHeight = function(){
     /* Высота контента (не documentElement.scrollHeight — тот зависит от высоты
        iframe и даёт положительную обратную связь: бесконечный рост). */
     var wrap = document.querySelector('.wrap');
     if (!wrap) return;
     var h = Math.ceil(wrap.getBoundingClientRect().height) + 4;
-    if (Math.abs(h - v17LastH) > 4) {
+    /* Шлём и при изменении вьюпорта: родитель калибрует CSS-высоту iframe
+       по паре (контент, вьюпорт) — зум Тильды их рассинхронизирует. */
+    if (Math.abs(h - v17LastH) > 4 || Math.abs(window.innerHeight - v17LastVp) > 4) {
       v17LastH = h;
-      /* v17InnerH — фактическая высота вьюпорта iframe: родитель по ней
-         калибрует CSS-высоту (зум Тильды может их рассинхронизировать). */
+      v17LastVp = window.innerHeight;
       window.parent.postMessage({ v17FormHeight: h, v17InnerH: window.innerHeight }, '*');
     }
   };

@@ -1,0 +1,115 @@
+<!-- V17: квалификационная форма вместо формы Contact us (глобальный футер).
+     Вставляется T123-блоком на страницу-шаблон футера Тильды.
+     Скрывает старую зероблок-форму (rec1673903821) и ставит на её место iframe
+     с формой https://elenavsemogu.github.io/v17-apply/ (режим embed).
+     Высота подстраивается автоматически (форма шлёт postMessage), нижняя часть
+     футера сдвигается. Все коэффициенты сдвига калибруются на месте, потому что
+     Тильда на широких экранах масштабирует элементы по-разному (inline zoom). -->
+<script>
+(function () {
+  var FORM_URL = 'https://elenavsemogu.github.io/v17-apply/?embed=1';
+  var REC = 'rec1673903821';                                  /* зероблок футера с формой */
+  var HOLD_ID = '1765362627485';                              /* элемент старой формы */
+  var HIDE_IDS = ['1765363640113', '1765363737226000001'];    /* подложка и текст Submit */
+  /* всё, что ниже формы: разделитель, «Our social media», вертикальная черта,
+     меню футера, Privacy policy, копирайт, иконки соцсетей */
+  var BELOW_IDS = ['1786548538565000001', '1765283375888', '1786550108929',
+                   '1765361436207000001', '1786522672413000001', '1765361841807000010',
+                   '1765361841786000009', '1765361849110000012', '1765361845904000011',
+                   '1786549969261', '1786549962919'];
+  var GAP = 56;                       /* визуальный зазор между формой и футером, px */
+  var iframe = null, wantCssH = 700;
+
+  function el(rec, id) { return rec.querySelector('.tn-elem__1673903821' + id); }
+
+  function setup() {
+    var rec = document.getElementById(REC); if (!rec) return false;
+    var hold = el(rec, HOLD_ID); if (!hold) return false;
+    if (hold.querySelector('iframe')) return true;
+    HIDE_IDS.forEach(function (id) { var e = el(rec, id); if (e) e.style.display = 'none'; });
+    var atom = hold.querySelector('.tn-atom'); if (atom) atom.style.display = 'none';
+    iframe = document.createElement('iframe');
+    iframe.src = FORM_URL;
+    iframe.setAttribute('scrolling', 'no');
+    iframe.setAttribute('title', 'V17 application form');
+    iframe.style.cssText = 'width:100%;height:' + wantCssH + 'px;border:0;display:block;background:transparent;overflow:hidden';
+    hold.appendChild(iframe);
+    return true;
+  }
+
+  /* Во сколько визуальных px обходится 100px margin-top у элемента. */
+  function shiftFactor(e) {
+    var m0 = parseFloat(e.style.marginTop) || 0;
+    var r0 = e.getBoundingClientRect().top;
+    e.style.marginTop = (m0 + 100) + 'px';
+    var r1 = e.getBoundingClientRect().top;
+    e.style.marginTop = m0 ? m0 + 'px' : '';
+    var f = (r1 - r0) / 100;
+    return f > 0.05 ? f : 1;
+  }
+
+  function layout() {
+    var rec = document.getElementById(REC); if (!rec || !iframe) return;
+    var hold = el(rec, HOLD_ID);
+    var art = rec.querySelector('.t396__artboard');
+    if (!hold || !art) return;
+
+    /* 1. Высота iframe меняется ТОЛЬКО по сообщению формы (wantCssH):
+       пересчёт по каждому тику со старым знаменателем схлопывает высоту. */
+    if (Math.abs((parseFloat(iframe.style.height) || 0) - wantCssH) > 2) {
+      iframe.style.height = wantCssH + 'px';
+    }
+    hold.style.height = iframe.style.height;
+
+    /* 2. Сдвиг нижней части футера под фактический низ формы.
+       Факторы меряем каждый проход (кеш, снятый во время анимаций, врёт). */
+    var fb = iframe.getBoundingClientRect().bottom;
+    var minBase = null, items = [];
+    BELOW_IDS.forEach(function (id) {
+      var e = el(rec, id); if (!e) return;
+      var factor = shiftFactor(e);
+      var applied = (parseFloat(e.style.marginTop) || 0) * factor;
+      var baseTop = e.getBoundingClientRect().top - applied;
+      items.push({ e: e, factor: factor, baseTop: baseTop });
+      if (minBase === null || baseTop < minBase) minBase = baseTop;
+    });
+    if (minBase === null) return;
+    var deltaVis = fb + GAP - minBase;
+    items.forEach(function (it) {
+      var m = deltaVis / it.factor;
+      var cur = parseFloat(it.e.style.marginTop) || 0;
+      if (Math.abs(m - cur) > 2) it.e.style.marginTop = m + 'px';
+    });
+
+    /* 3. Высота артборда: базу запоминаем, при пересчёте Тильдой — обновляем. */
+    var h0 = art.getBoundingClientRect().height;
+    var s0 = art.style.height;
+    art.style.height = (art.offsetHeight + 100) + 'px';
+    var artFactor = (art.getBoundingClientRect().height - h0) / 100 || 1;
+    art.style.height = s0;
+    var curH = art.offsetHeight;
+    if (Math.abs(curH - (parseFloat(art.dataset.v17set || '0'))) > 2) {
+      /* Тильда переписала высоту — принимаем её за новую базу */
+      art.dataset.v17base = curH;
+    }
+    var baseH = parseFloat(art.dataset.v17base) || curH;
+    var newH = baseH + deltaVis / artFactor;
+    if (Math.abs(newH - curH) > 2) art.style.height = newH + 'px';
+    art.dataset.v17set = newH;
+  }
+
+  window.addEventListener('message', function (ev) {
+    if (ev.data && ev.data.v17FormHeight && iframe) {
+      var contentH = Math.min(Math.max(ev.data.v17FormHeight, 300), 4200);
+      var innerH = ev.data.v17InnerH || 0;
+      var cssH = parseFloat(iframe.style.height) || contentH;
+      /* Пара (контент, вьюпорт) снята формой одновременно: нужная css-высота =
+         текущая × контент/вьюпорт. Если zoom нет — просто contentH. */
+      wantCssH = Math.ceil(innerH > 0 ? cssH * (contentH / innerH) : contentH);
+      wantCssH = Math.min(Math.max(wantCssH, 300), 4200);
+      layout();
+    }
+  });
+  setInterval(function () { if (setup()) layout(); }, 600);
+})();
+</script>
