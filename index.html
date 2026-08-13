@@ -338,23 +338,23 @@
       <!-- ШАГ 1: Quick Fit Check -->
       <div class="step visible" data-step="0">
         <h2>Quick fit check</h2>
-        <p class="step-sub">Four quick questions — if we're a clear mismatch, we'll say so right away and save you the time.</p>
+        <p class="step-sub">Four quick questions — if we're a clear mismatch, we'll say so right away and save you your time.</p>
 
+        <!-- Поля шага 1 — строго по ТЗ «Заявка для заполнения командами»,
+             НЕ по Notion-форме: без B2G/Other в сегментах, без Pre-Seed,
+             рынки — мультивыбор с Global. -->
         <div class="field">
           <label>Segment</label>
           <div class="pillgroup" data-name="segment" data-multi="true" data-required="true">
             <div class="pill" data-value="b2c">B2C</div>
             <div class="pill" data-value="b2b">B2B</div>
             <div class="pill" data-value="b2b2c">B2B2C</div>
-            <div class="pill" data-value="b2g">B2G</div>
-            <div class="pill" data-value="other">Other</div>
           </div>
         </div>
 
         <div class="field">
           <label>Stage</label>
           <div class="pillgroup" data-name="stage" data-required="true">
-            <div class="pill" data-value="preseed">Pre-Seed</div>
             <div class="pill" data-value="seed">Seed</div>
             <div class="pill" data-value="preseriesa">Pre-Series A</div>
             <div class="pill" data-value="seriesa">Series A</div>
@@ -368,14 +368,13 @@
             <input type="text" inputmode="numeric" id="mrr" class="money" placeholder="15,000" required>
           </div>
           <div class="field">
-            <label>Primary market</label>
-            <div class="pillgroup" data-name="market" data-required="true">
-              <div class="pill" data-value="us">US</div>
+            <label>Top user markets</label>
+            <div class="pillgroup" data-name="market" data-multi="true" data-required="true">
+              <div class="pill" data-value="global">Global</div>
+              <div class="pill" data-value="usa">USA</div>
               <div class="pill" data-value="europe">Europe</div>
-              <div class="pill" data-value="latam">Latin America</div>
+              <div class="pill" data-value="latam">LatAm</div>
               <div class="pill" data-value="sea">SEA</div>
-              <div class="pill" data-value="mena">MENA</div>
-              <div class="pill" data-value="china">China</div>
               <div class="pill" data-value="other">Other</div>
             </div>
           </div>
@@ -447,9 +446,13 @@
           <textarea id="problem" placeholder="2-3 sentences" required></textarea>
         </div>
 
+        <!-- По ТЗ: «Pitch deck link or attachment» — достаточно одного из двух. -->
         <div class="field">
-          <label>Pitch deck link</label>
-          <input type="url" id="pitch_deck" placeholder="https://" required>
+          <label>Pitch deck — link or attachment <span style="color:var(--warn)">*</span></label>
+          <input type="url" id="pitch_deck" placeholder="https://">
+          <input type="file" id="pitch_deck_file" accept=".pdf,.ppt,.pptx,.key,.zip" style="margin-top:8px;font-size:13px;color:var(--ink-soft)">
+          <p class="hint">Paste a link or attach a file (PDF/PPT, up to 10 MB).</p>
+          <div id="deckError"></div>
         </div>
 
         <div class="field">
@@ -508,7 +511,7 @@
       <!-- ШАГ 4: Контакты -->
       <div class="step" data-step="3">
         <h2>Contact info</h2>
-        <p class="step-sub">Where should we send our decision.</p>
+        <p class="step-sub">How can we contact you.</p>
 
         <div class="row2">
           <div class="field"><label>Name</label><input type="text" id="contact_name" required></div>
@@ -567,7 +570,6 @@ async function apiFetch(query, options){
    их можно менять без программиста. */
 let MRR_THRESHOLD_B2C = 10000;
 let MRR_THRESHOLD_DEFAULT = 30000;
-let PRESEED_AUTO_DECLINE = true;
 
 let currentStep = 0;
 const totalSteps = 4;
@@ -628,7 +630,6 @@ async function loadConfig(){
       MRR_THRESHOLD_B2C = cfg.thresholds.b2c || MRR_THRESHOLD_B2C;
       MRR_THRESHOLD_DEFAULT = cfg.thresholds.other || MRR_THRESHOLD_DEFAULT;
     }
-    if(typeof cfg.preseed_auto_decline === 'boolean') PRESEED_AUTO_DECLINE = cfg.preseed_auto_decline;
     if(Array.isArray(cfg.verticals) && cfg.verticals.length){
       const group = document.querySelector('.pillgroup[data-name="verticals"]');
       group.innerHTML = cfg.verticals.map(function(v){
@@ -678,7 +679,48 @@ function checkEmail(){
 }
 document.getElementById('contact_email').addEventListener('input', checkEmail);
 
-document.querySelectorAll('input:not(.money), textarea, select').forEach(function(el){
+/* Pitch deck: по ТЗ — «link or attachment». Файл читаем в base64 и шлём
+   вместе с заявкой (бэкенд кладёт его на Google Drive и даёт ссылку). */
+const DECK_MAX_BYTES = 10 * 1024 * 1024;
+document.getElementById('pitch_deck_file').addEventListener('change', function(){
+  const errSlot = document.getElementById('deckError');
+  const file = this.files && this.files[0];
+  delete data.pitch_deck_file;
+  errSlot.innerHTML = '';
+  if(!file) return;
+  if(file.size > DECK_MAX_BYTES){
+    this.value = '';
+    errSlot.innerHTML = '<p style="font-size:12px;color:var(--warn);margin-top:5px">The file is over 10 MB — please share a link instead.</p>';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(){
+    data.pitch_deck_file = {
+      name: file.name,
+      mime: file.type || 'application/octet-stream',
+      data: String(reader.result).split(',')[1] || ''
+    };
+    validateDeck();
+  };
+  reader.readAsDataURL(file);
+});
+
+/* Заполнено хотя бы одно из двух: ссылка или файл. */
+function validateDeck(){
+  const linkEl = document.getElementById('pitch_deck');
+  const fileEl = document.getElementById('pitch_deck_file');
+  const errSlot = document.getElementById('deckError');
+  const ok = (linkEl.value || '').trim() !== '' || !!data.pitch_deck_file;
+  linkEl.classList.toggle('field-invalid', !ok);
+  fileEl.classList.toggle('field-invalid', !ok);
+  errSlot.innerHTML = ok ? '' : '<p style="font-size:12px;color:var(--warn);margin-top:5px">Please add a pitch deck — a link or a file.</p>';
+  return ok;
+}
+document.getElementById('pitch_deck').addEventListener('input', function(){
+  if(document.getElementById('deckError').innerHTML) validateDeck();
+});
+
+document.querySelectorAll('input:not(.money):not([type=file]), textarea, select').forEach(function(el){
   el.addEventListener('input', function(){
     data[el.id] = el.value;
     evaluateGate();
@@ -710,6 +752,11 @@ function validateStep(i){
     if(!filled) valid = false;
   });
 
+  if(i === 1 && !validateDeck()){
+    valid = false;
+    if(!firstInvalid) firstInvalid = document.getElementById('pitch_deck');
+  }
+
   return { valid: valid, firstInvalid: firstInvalid };
 }
 
@@ -724,27 +771,29 @@ function evaluateGate(){
   const slot = document.getElementById('declineSlot');
   const mrr = moneyValue('mrr');
   const seg = data.segment || [];
-  const stage = data.stage;
 
   hardFail = false;
-  const reasons = [];
 
+  /* Единственный жёсткий порог по ТЗ: MRR ниже $10k (только B2C) / $30k (остальные). */
   if(seg.length && mrr){
     const threshold = mrrThreshold();
-    if(mrr < threshold){
-      hardFail = true;
-      reasons.push('MRR below threshold ($' + threshold.toLocaleString('en-US') + ' for the selected segment)');
-    }
-  }
-  if(stage === 'preseed' && PRESEED_AUTO_DECLINE){
-    hardFail = true;
-    reasons.push('stage outside current target (Seed - Series A+)');
+    if(mrr < threshold) hardFail = true;
   }
 
   if(hardFail){
-    slot.innerHTML = '<div class="decline-box"><b>This may not match our current focus</b> — ' + reasons.join('; ') + '. You can still submit it — it will go into a separate pool for cohort financing and reconsideration, though we cannot guarantee a response.</div>';
+    slot.innerHTML = '<div class="decline-box"><b>Thank you for your interest in V17.</b> Right now we invest in companies with MRR from $' + mrrThreshold().toLocaleString('en-US') + ' for the selected segment, so this application would not pass our current thresholds. We would genuinely love to hear from you once you cross that mark. You can still submit the application — it will go into a separate pool for cohort financing and reconsideration, though we cannot guarantee a response.</div>';
   } else {
     slot.innerHTML = '';
+  }
+  updateNextLabel();
+}
+
+/* При непрохождении порога кнопка на шаге 1 меняется на «Submit anyway» —
+   анкета дальше открывается только осознанным кликом (soft-отказ по ТЗ). */
+function updateNextLabel(){
+  const btn = document.getElementById('btnNext');
+  if(currentStep === 0){
+    btn.textContent = hardFail ? 'Submit anyway' : 'Next';
   }
 }
 
@@ -794,6 +843,7 @@ function showStep(i){
   if(i === 1) updateRaiseVisibility();
   document.getElementById('btnBack').disabled = (i === 0);
   document.getElementById('btnNext').textContent = (i === totalSteps - 1) ? 'Submit application' : 'Next';
+  updateNextLabel();
   const card = document.querySelector('.card');
   if(card && card.scrollIntoView && i > 0) card.scrollIntoView({behavior:'smooth', block:'start'});
 }

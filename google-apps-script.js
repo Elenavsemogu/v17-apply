@@ -49,8 +49,7 @@ var CONFIG = {
    ========================================================================== */
 var DEFAULT_SETTINGS = [
   ['MRR_THRESHOLD_B2C', 10000, 'Порог MRR, если выбран ТОЛЬКО B2C'],
-  ['MRR_THRESHOLD_OTHER', 30000, 'Порог MRR для остальных/смешанных сегментов (B2B, B2B2C, B2G, Other)'],
-  ['PRESEED_AUTO_DECLINE', 'yes', 'Pre-Seed получает мягкий автоотказ (yes/no)'],
+  ['MRR_THRESHOLD_OTHER', 30000, 'Порог MRR для остальных/смешанных сегментов (B2B, B2B2C)'],
   ['VERTICALS', 'HealthTech, Wellbeing, Productivity Tools, Future of Work, FinTech, EdTech, Entertainment, Lifestyle, MarTech, DIY-Marketing Tools, AI Operators, AI Assistants for Business, Gaming, Gambling / Betting, Other', 'Список вертикалей через запятую — порядок сохраняется на форме']
 ];
 
@@ -115,7 +114,6 @@ function doGet(e) {
         b2c: Number(s.MRR_THRESHOLD_B2C) || 10000,
         other: Number(s.MRR_THRESHOLD_OTHER) || 30000
       },
-      preseed_auto_decline: String(s.PRESEED_AUTO_DECLINE || 'yes').toLowerCase() !== 'no',
       verticals: String(s.VERTICALS || '').split(',').map(function (v) { return v.trim(); }).filter(Boolean)
     });
   }
@@ -167,7 +165,7 @@ function getDeclineTemplates() {
 
 var SHEET_HEADERS = [
   'Submitted at', 'Hard filter failed', 'Company', 'Website', 'Segment', 'Stage',
-  'Primary market', 'MRR $', 'Interested in', 'Amount raising $', 'Post-money $',
+  'Top user markets', 'MRR $', 'Interested in', 'Amount raising $', 'Post-money $',
   'Verticals', 'Problem', 'Pitch deck', 'ICP', 'Team',
   'Ret D30 %', 'Ret D60 %', 'Ret D90 %', 'CAC $', 'LTV $', 'Avg session min',
   'Payback', 'Monetization', 'Organic %', 'MRR growth', 'Marketing spend $/mo',
@@ -193,12 +191,25 @@ function handleFormSubmission(d) {
     return (typeof v === 'string' && /^[=+\-]/.test(v)) ? "'" + v : v;
   };
 
+  /* Pitch deck по ТЗ — ссылка ИЛИ файл. Файл приходит base64 → кладём
+     на Google Drive и дальше везде используем ссылку. */
+  var deck = d.pitch_deck || '';
+  if (d.pitch_deck_file && d.pitch_deck_file.data) {
+    try {
+      var fileUrl = saveDeckFile(d);
+      deck = deck ? deck + ' · ' + fileUrl : fileUrl;
+    } catch (err) {
+      deck = deck || ('file upload failed: ' + err);
+    }
+  }
+  d.pitch_deck = deck;
+
   var sheet = getSheet();
   var row = [
     d.submitted_at || new Date().toISOString(),
     d.hard_filter_failed ? 'YES' : '',
     d.company_name || '', d.website || '',
-    joined(d.segment).toUpperCase(), d.stage || '', d.market || '',
+    joined(d.segment).toUpperCase(), d.stage || '', joined(d.market),
     d.mrr || '', joined(d.interested_in), d.amount_raising || '', d.post_money || '',
     joined(d.verticals), safe(d.problem || ''), d.pitch_deck || '', safe(d.icp || ''), safe(d.team || ''),
     d.ret30 || '', d.ret60 || '', d.ret90 || '', d.cac || '', d.ltv || '', d.session || '',
@@ -226,6 +237,22 @@ function handleFormSubmission(d) {
   }
 
   return jsonResponse({ ok: true });
+}
+
+/* Приложенный pitch deck → папка «V17 pitch decks» на Drive владельца скрипта.
+   Доступ «всем по ссылке (просмотр)», чтобы ссылка работала из Notion/таблицы. */
+function saveDeckFile(d) {
+  var f = d.pitch_deck_file;
+  var blob = Utilities.newBlob(
+    Utilities.base64Decode(f.data),
+    f.mime || 'application/octet-stream',
+    (d.company_name ? d.company_name + ' — ' : '') + (f.name || 'pitch-deck')
+  );
+  var it = DriveApp.getFoldersByName('V17 pitch decks');
+  var folder = it.hasNext() ? it.next() : DriveApp.createFolder('V17 pitch decks');
+  var file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return file.getUrl();
 }
 
 /* ============================ Notion ============================
@@ -285,9 +312,10 @@ function createNotionPage(d) {
       { text: { content: String(value).slice(0, 1800) } }
     ]}});
   };
+  var joined = function (v) { return Array.isArray(v) ? v.join(', ') : (v || ''); };
   line('Website', d.website);
   line('Stage', d.stage);
-  line('Primary market', d.market);
+  line('Top user markets', joined(d.market));
   line('Post-money, $', d.post_money);
   line('Pitch deck', d.pitch_deck);
   line('Contact', (d.contact_name || '') + ' · ' + (d.contact_email || ''));
@@ -372,13 +400,14 @@ function notifyTelegram(d, rowNum, notionUrl) {
     (d.hard_filter_failed ? '⚠️ <b>Новая заявка (НЕ прошла фильтр)</b>' : '✅ <b>Новая заявка</b>'),
     '',
     '<b>' + esc(d.company_name || '(без названия)') + '</b> — ' + esc(d.website || ''),
-    esc(joined(d.segment).toUpperCase()) + ' · ' + esc(d.stage || '—') + ' · рынок: ' + esc(d.market || '—'),
+    esc(joined(d.segment).toUpperCase()) + ' · ' + esc(d.stage || '—') + ' · рынки: ' + esc(joined(d.market) || '—'),
     'MRR: ' + money(d.mrr) + ' · Raising: ' + money(d.amount_raising) + ' · Post-money: ' + money(d.post_money),
     'Интерес: ' + esc(joined(d.interested_in)),
     'Вертикали: ' + esc(joined(d.verticals)),
     'Retention 30/60/90: ' + esc((d.ret30 || '—') + '/' + (d.ret60 || '—') + '/' + (d.ret90 || '—') + '%') +
       ' · CAC ' + money(d.cac) + ' · LTV ' + money(d.ltv),
     'Organic: ' + esc(d.organic_pct || '—') + '% · Spend: ' + money(d.marketing_spend) + '/мес',
+    (d.pitch_deck ? 'Deck: ' + esc(d.pitch_deck) : ''),
     '',
     '👤 ' + esc(d.contact_name || '—') + ' · ' + esc(d.contact_email || '—'),
     (notionUrl ? '📄 <a href="' + notionUrl + '">Открыть в Notion</a>' : '')
