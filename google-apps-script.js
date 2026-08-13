@@ -331,13 +331,35 @@ function createNotionPage(d) {
 
 /* ============================ Telegram ============================ */
 
+/* Актуальный id чата. Telegram меняет id группы при апгрейде до супергруппы
+   (например, после изменения настроек чата) — тогда старый id перестаёт
+   работать. Новый id запоминаем в Script Properties (см. tg ниже). */
+function tgChatId() {
+  return PropertiesService.getScriptProperties().getProperty('tg_chat_id') || CONFIG.TELEGRAM_CHAT_ID;
+}
+
 function tg(method, payload) {
-  return UrlFetchApp.fetch('https://api.telegram.org/bot' + CONFIG.TELEGRAM_TOKEN + '/' + method, {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  });
+  var call = function () {
+    return UrlFetchApp.fetch('https://api.telegram.org/bot' + CONFIG.TELEGRAM_TOKEN + '/' + method, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+  };
+  var resp = call();
+  /* Группу апгрейдили до супергруппы → Telegram вернул новый chat_id.
+     Запоминаем его и повторяем запрос, чтобы уведомление не потерялось. */
+  try {
+    var out = JSON.parse(resp.getContentText());
+    var newId = out && !out.ok && out.parameters && out.parameters.migrate_to_chat_id;
+    if (newId && payload && payload.chat_id) {
+      PropertiesService.getScriptProperties().setProperty('tg_chat_id', String(newId));
+      payload.chat_id = String(newId);
+      resp = call();
+    }
+  } catch (e) { /* не-JSON ответ — отдаём как есть */ }
+  return resp;
 }
 
 function notifyTelegram(d, rowNum, notionUrl) {
@@ -374,7 +396,7 @@ function notifyTelegram(d, rowNum, notionUrl) {
   ]};
 
   tg('sendMessage', {
-    chat_id: CONFIG.TELEGRAM_CHAT_ID,
+    chat_id: tgChatId(),
     text: lines.filter(Boolean).join('\n'),
     parse_mode: 'HTML',
     disable_web_page_preview: true,
