@@ -187,6 +187,11 @@ function getSheet() {
 
 function handleFormSubmission(d) {
   var joined = function (v) { return Array.isArray(v) ? v.join(', ') : (v || ''); };
+  /* Строки, начинающиеся с = + -, Sheets парсит как формулы (например
+     «+18%/mo» превращается в #NAME?) — экранируем апострофом. */
+  var safe = function (v) {
+    return (typeof v === 'string' && /^[=+\-]/.test(v)) ? "'" + v : v;
+  };
 
   var sheet = getSheet();
   var row = [
@@ -195,10 +200,10 @@ function handleFormSubmission(d) {
     d.company_name || '', d.website || '',
     joined(d.segment).toUpperCase(), d.stage || '', d.market || '',
     d.mrr || '', joined(d.interested_in), d.amount_raising || '', d.post_money || '',
-    joined(d.verticals), d.problem || '', d.pitch_deck || '', d.icp || '', d.team || '',
+    joined(d.verticals), safe(d.problem || ''), d.pitch_deck || '', safe(d.icp || ''), safe(d.team || ''),
     d.ret30 || '', d.ret60 || '', d.ret90 || '', d.cac || '', d.ltv || '', d.session || '',
-    d.payback || '', d.sub_model || '', d.organic_pct || '', d.mrr_growth || '', d.marketing_spend || '',
-    d.contact_name || '', d.contact_email || '', d.notes || '',
+    safe(d.payback || ''), safe(d.sub_model || ''), d.organic_pct || '', safe(d.mrr_growth || ''), d.marketing_spend || '',
+    safe(d.contact_name || ''), d.contact_email || '', safe(d.notes || ''),
     'new', ''
   ];
   sheet.appendRow(row);
