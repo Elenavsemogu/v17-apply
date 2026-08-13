@@ -65,19 +65,48 @@
     return true;
   }
 
-  /* автовысота: форма шлёт свою высоту контента postMessage-ом */
+  /* полоса подвала масштабируется как контент Тильды на широких экранах */
+  function fitStrip() {
+    var strip = document.getElementById('v17-strip');
+    if (!strip) return;
+    var s = window.innerWidth / 1200;
+    strip.style.zoom = s > 1 ? s : '';
+  }
+  window.addEventListener('resize', fitStrip);
+
+  /* когда блок с формой доскроллен во вьюпорт — говорим форме играть анимации */
+  var v17Seen = false;
+  function watchVisible() {
+    var f = document.querySelector('#v17-replace iframe');
+    if (!f || !('IntersectionObserver' in window)) { v17Seen = true; return; }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        v17Seen = true;
+        try { f.contentWindow.postMessage({ v17Visible: 1 }, '*'); } catch (_) {}
+        io.disconnect();
+      });
+    }, { rootMargin: '0px 0px -15% 0px' });
+    io.observe(f);
+  }
+
+  /* автовысота: форма шлёт свою высоту контента postMessage-ом.
+     Заодно подтверждаем видимость (на случай, если iframe загрузился
+     позже, чем сработал IntersectionObserver). */
   window.addEventListener('message', function (ev) {
     if (!ev.data || !ev.data.v17FormHeight) return;
     var f = document.querySelector('#v17-replace iframe');
     if (!f) return;
-    var h = Math.min(Math.max(ev.data.v17FormHeight + 40, 500), 4200);
+    if (v17Seen) { try { f.contentWindow.postMessage({ v17Visible: 1 }, '*'); } catch (_) {} }
+    var h = Math.min(Math.max(ev.data.v17FormHeight + 40, 500), 6000);
     if (Math.abs((parseFloat(f.style.height) || 0) - h) > 4) f.style.height = h + 'px';
   });
 
   /* зероблок рендерится скриптами Тильды — ждём появления */
   var tries = 0;
   var t = setInterval(function () {
-    if (build() || ++tries > 60) clearInterval(t);
+    if (build()) { fitStrip(); watchVisible(); clearInterval(t); }
+    else if (++tries > 60) clearInterval(t);
   }, 400);
   document.addEventListener('DOMContentLoaded', build);
 })();

@@ -6,62 +6,47 @@
 <title>V17 — Apply for funding</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script>
-  /* До отрисовки: тёмная тема по ?theme=dark (для встраивания в тёмные секции),
-     ?embed=1 — без обложки с критериями, только карточка формы (для футера). */
+  /* До отрисовки: ?embed=1 — без обложки с критериями, только карточка формы. */
   var v17Params = new URLSearchParams(location.search);
-  if (v17Params.get('theme') === 'dark') {
-    document.documentElement.classList.add('theme-dark');
-  }
   if (v17Params.get('embed') === '1') {
     document.documentElement.classList.add('embed');
   }
 </script>
 <style>
-  /* Палитра и типографика — под фирменный стиль v17.vc:
-     кремовый фон, фирменный красный, геометричный гротеск. */
+  /* Палитра и типографика — точные токены v17.vc (из кастомного CSS сайта):
+     --color-white:#F7F2EF, --color-red:#B22726 (hover #8F1F1F), --color-black:#010101,
+     рамки rgba(1,1,1,.32/.4), transition-apple. Заголовки — Urbanist 600,
+     мелкий UI-текст — Manrope (как меню/подписи на сайте). */
   :root{
-    --paper:#F5F0EA;
+    --paper:#F7F2EF;
     --paper-raised:#FFFFFF;
-    --ink:#1B1B1B;
-    --ink-soft:#4A4A4A;
-    --ink-muted:#98928A;
-    --line:#E2DCD2;
-    --capital:#C1272D;
-    --capital-soft:#F6E4E2;
-    --media:#1B1B1B;
+    --ink:#010101;
+    --ink-soft:rgba(1,1,1,.78);
+    --ink-muted:rgba(1,1,1,.52);
+    --line:rgba(1,1,1,.32);
+    --capital:#B22726;
+    --capital-hover:#8F1F1F;
+    --capital-soft:#F3E2E0;
+    --media:#010101;
     --media-soft:#E9E4DD;
     --ok:#2F7D5B;
     --ok-soft:#E6F1EB;
     --warn:#B4432F;
     --warn-soft:#F7E7E3;
-    --radius:6px;
-    --font:'Jost','Century Gothic','Futura',sans-serif;
+    --radius:4px;
+    --font:'Manrope',Arial,sans-serif;
+    --font-head:'Urbanist',Arial,sans-serif;
+    --transition-apple:0.5s cubic-bezier(0.25,0.1,0.25,1);
   }
-  /* Тёмная тема — для встраивания в тёмную секцию Contact us на v17.vc.
-     Включается параметром ?theme=dark (класс ставится скриптом в <head>). */
-  html.theme-dark{
-    --paper:#010101;
-    --paper-raised:#161412;
-    --ink:#F7F2EF;
-    --ink-soft:#D8D1C8;
-    --ink-muted:#8F887E;
-    --line:#3B3733;
-    --capital:#B22726;
-    --capital-soft:#2A1414;
-    --media:#F7F2EF;
-    --media-soft:#26231F;
-    --ok:#8CC7A8;
-    --ok-soft:#15271E;
-    --warn:#E08B72;
-    --warn-soft:#2C1812;
-  }
+  ::selection{background:#B22726;color:#F7F2EF}
   /* Режим встраивания (?embed=1): без сайдбара-обложки, карточка на всю ширину. */
   html.embed .sidebar{display:none}
   html.embed .wrap{display:block;max-width:none;padding:0}
   html.embed body{background:transparent}
   *{box-sizing:border-box;margin:0;padding:0}
+  html{overflow-x:hidden}
   body{
     font-family:var(--font);
     background:var(--paper);
@@ -69,13 +54,16 @@
     line-height:1.55;
     -webkit-font-smoothing:antialiased;
   }
+  /* Масштабирование как у Тильды: дизайн-сетка 1200px, на экранах шире
+     контент увеличивается transform: scale(vw/1200) — см. v17ApplyScale(). */
   .wrap{
-    max-width:1080px;
+    max-width:1200px;
     margin:0 auto;
-    padding:48px 24px 96px;
+    padding:56px 40px 96px;
     display:grid;
-    grid-template-columns:340px 1fr;
-    gap:56px;
+    grid-template-columns:360px 1fr;
+    gap:64px;
+    transform-origin:top center;
   }
   @media (max-width:860px){
     .wrap{grid-template-columns:1fr;padding:32px 18px 64px;gap:36px}
@@ -83,26 +71,29 @@
   }
 
   .sidebar{position:sticky;top:40px;align-self:start}
-  .eyebrow{
-    font-size:12px;
-    font-weight:600;
-    letter-spacing:.14em;
-    text-transform:uppercase;
-    color:var(--capital);
-    margin-bottom:14px;
-    display:block;
-  }
   h1{
-    font-weight:700;
-    font-size:32px;
-    line-height:1.1;
-    letter-spacing:-.01em;
+    font-family:var(--font-head);
+    font-weight:600;
+    font-size:40px;
+    line-height:1.3;
     color:var(--capital);
-    margin-bottom:16px;
+    margin-bottom:18px;
   }
+  @media (max-width:860px){h1{font-size:30px}}
   .lede{
-    color:var(--ink-soft);
+    font-family:var(--font-head);
+    font-weight:500;
+    color:var(--ink);
+    font-size:19px;
+    line-height:1.45;
+    margin-bottom:14px;
+  }
+  .lede-sub{
+    font-family:var(--font-head);
+    font-weight:500;
+    color:var(--ink-muted);
     font-size:15px;
+    line-height:1.5;
     margin-bottom:28px;
   }
   .thesis-line{
@@ -162,13 +153,15 @@
     color:var(--ink-soft);
   }
 
+  /* Карточка — как плитки на сайте (.uc-flip/.section3_shape):
+     белая, рамка 0.67px rgba(1,1,1,.4), радиус ~4px. */
   .card{
     background:var(--paper-raised);
-    border:1px solid var(--line);
-    border-radius:8px;
-    padding:36px 40px;
+    border:0.67px solid rgba(1,1,1,.4);
+    border-radius:4px;
+    padding:40px 44px;
   }
-  @media (max-width:600px){.card{padding:24px 20px}}
+  @media (max-width:600px){.card{padding:24px 20px;border-width:0.5px;border-radius:2px}}
 
   .steps{display:flex;gap:6px;margin-bottom:32px}
   .step-dot{flex:1;height:3px;background:var(--line);border-radius:2px;transition:background .3s ease}
@@ -179,12 +172,14 @@
   .step.visible{display:block}
 
   h2{
-    font-weight:700;
-    font-size:24px;
+    font-family:var(--font-head);
+    font-weight:600;
+    font-size:28px;
+    line-height:1.3;
     color:var(--capital);
     margin-bottom:6px;
   }
-  .step-sub{color:var(--ink-muted);font-size:13px;margin-bottom:28px}
+  .step-sub{font-family:var(--font-head);font-weight:500;color:var(--ink-muted);font-size:15px;margin-bottom:28px}
 
   .field{margin-bottom:20px}
   .field label{
@@ -198,12 +193,13 @@
   input[type=text],input[type=number],input[type=email],input[type=url],select,textarea{
     width:100%;
     padding:11px 13px;
-    border:1px solid var(--line);
-    border-radius:4px;
+    border:0.63px solid var(--line);
+    border-radius:3.13px;
     background:var(--paper);
     font-family:var(--font);
     font-size:14px;
     color:var(--ink);
+    transition:border-color var(--transition-apple),box-shadow var(--transition-apple);
   }
   textarea{resize:vertical;min-height:76px}
   input:focus,select:focus,textarea:focus{
@@ -218,16 +214,16 @@
   .pillgroup{display:flex;gap:8px;flex-wrap:wrap}
   .pill{
     padding:8px 16px;
-    border-radius:4px;
-    border:1px solid var(--line);
+    border-radius:3.13px;
+    border:0.67px solid rgba(1,1,1,.4);
     background:var(--paper-raised);
     font-size:13px;
     font-weight:500;
     cursor:pointer;
-    transition:all .15s ease;
+    transition:background-color var(--transition-apple),color var(--transition-apple),border-color var(--transition-apple);
   }
-  .pill:hover{border-color:var(--capital)}
-  .pill.selected{background:var(--capital);border-color:var(--capital);color:#fff}
+  .pill:hover{background:var(--paper);border-color:var(--capital)}
+  .pill.selected{background:var(--capital);border-color:var(--capital);color:#F7F2EF}
 
   .nav-row{
     display:flex;
@@ -237,23 +233,28 @@
     padding-top:24px;
     border-top:1px solid var(--line);
   }
+  /* Кнопки — как красные кнопки сайта: #B22726, радиус 3.13px,
+     hover #8F1F1F, transition-apple. Текст — Manrope uppercase (как меню). */
   button{
     font-family:var(--font);
-    font-size:13px;
+    font-size:12px;
     font-weight:600;
-    letter-spacing:.1em;
+    letter-spacing:.08em;
     text-transform:uppercase;
-    padding:13px 26px;
-    border-radius:3px;
+    padding:14px 28px;
+    border-radius:3.13px;
     cursor:pointer;
-    border:1px solid var(--line);
+    border:0.67px solid rgba(1,1,1,.4);
     background:transparent;
     color:var(--ink);
+    transition:background-color var(--transition-apple),color var(--transition-apple),border-color var(--transition-apple);
   }
-  button.primary{background:var(--capital);color:#fff;border-color:var(--capital)}
-  button.primary:hover{background:#A81F25;border-color:#A81F25}
+  button:hover{background:var(--paper)}
+  button.primary{background:var(--capital);color:#F7F2EF;border-color:var(--capital)}
+  button.primary:hover{background:var(--capital-hover);border-color:var(--capital-hover)}
   button:disabled{opacity:.4;cursor:not-allowed}
   button.ghost{border-color:transparent;color:var(--ink-muted)}
+  button.ghost:hover{background:transparent;color:var(--ink)}
 
   .field-invalid{
     border-color:var(--warn) !important;
@@ -300,9 +301,9 @@
 <div class="wrap">
 
   <div class="sidebar">
-    <span class="eyebrow">V17 · Apply for funding</span>
-    <h1>Capital and marketing accelerator and budget for a product that outpaces its own marketing.</h1>
-    <p class="lede">Equity, marketing-for-equity and cohort financing for B2C and B2B teams at Seed - Series A+. The application takes 5-7 minutes — we take it from there.</p>
+    <h1>Apply for funding</h1>
+    <p class="lede">Capital and marketing accelerator and budget for a product that outpaces its own marketing.</p>
+    <p class="lede-sub">Equity, marketing-for-equity and cohort financing for B2C and B2B teams at Seed - Series A+. The application takes 5-7 minutes — we take it from there.</p>
 
     <div class="thesis-line"><span class="thesis-tag">Segments</span><span>B2C Consumer, HealthTech, FinTech, EdTech, Wellbeing &amp; Lifestyle &middot; B2B MarTech, AI assistants and Productivity Tools, Future of Work</span></div>
     <div class="thesis-line"><span class="thesis-tag">Stage</span><span>Seed - Series A+</span></div>
@@ -781,7 +782,9 @@ function updateGauge(){
 
 function showStep(i){
   document.querySelectorAll('.step').forEach(function(s){ s.classList.remove('visible'); });
-  document.querySelector('.step[data-step="' + i + '"]').classList.add('visible');
+  var stepEl = document.querySelector('.step[data-step="' + i + '"]');
+  stepEl.classList.add('visible');
+  if (v17Played) v17RevealChars(stepEl.querySelector('h2'), 40);
   for(let d = 0; d < totalSteps; d++){
     const dot = document.getElementById('dot-' + d);
     dot.classList.remove('active', 'done');
@@ -849,6 +852,92 @@ async function submitForm(){
     btn.disabled = false;
     btn.textContent = 'Submit application';
   }
+}
+
+/* ============================================================
+   Масштабирование как на v17.vc: дизайн-сетка 1200px, на более широких
+   экранах Тильда увеличивает контент (inline zoom = vw/1200). Повторяем
+   через transform: scale — так шрифты и отступы визуально совпадают
+   с соседними секциями сайта на любой ширине.
+   ============================================================ */
+function v17ApplyScale(){
+  var wrap = document.querySelector('.wrap');
+  if(!wrap) return;
+  var s = document.documentElement.clientWidth / 1200;
+  wrap.style.transform = s > 1 ? 'scale(' + s + ')' : '';
+}
+window.addEventListener('resize', v17ApplyScale);
+v17ApplyScale();
+
+/* ============================================================
+   Анимации как на сайте (там SplitType + gsap): заголовки собираются
+   по буквам (y:16→0, stagger, пружинящий back.out), остальные блоки
+   всплывают (fade-up). Запуск — когда блок с формой попал во вьюпорт:
+   сниппет в Тильде шлёт postMessage {v17Visible:1}; вне iframe — сразу.
+   ============================================================ */
+var v17Played = false;
+var V17_EASE_BACK = 'cubic-bezier(0.34,1.56,0.64,1)';
+var V17_EASE_APPLE = 'cubic-bezier(0.25,0.1,0.25,1)';
+
+function v17SplitChars(el){
+  if(!el) return [];
+  if(el.dataset.v17split) return el.querySelectorAll('.v17ch');
+  el.dataset.v17split = '1';
+  var words = el.textContent.split(/\s+/).filter(Boolean);
+  el.textContent = '';
+  words.forEach(function(w, wi){
+    var ws = document.createElement('span');
+    ws.style.display = 'inline-block';
+    ws.style.whiteSpace = 'pre';
+    for(var i = 0; i < w.length; i++){
+      var c = document.createElement('span');
+      c.className = 'v17ch';
+      c.style.display = 'inline-block';
+      c.textContent = w[i];
+      ws.appendChild(c);
+    }
+    el.appendChild(ws);
+    if(wi < words.length - 1) el.appendChild(document.createTextNode(' '));
+  });
+  return el.querySelectorAll('.v17ch');
+}
+
+function v17RevealChars(el, stagger){
+  if(!el || !el.animate) return;
+  v17SplitChars(el).forEach(function(c, i){
+    c.animate(
+      [{opacity:0, transform:'translateY(16px)'}, {opacity:1, transform:'translateY(0)'}],
+      {duration:800, delay:i * (stagger || 50), easing:V17_EASE_BACK, fill:'both'}
+    );
+  });
+}
+
+function v17FadeUp(el, delay){
+  if(!el || !el.animate) return;
+  el.animate(
+    [{opacity:0, transform:'translateY(16px)'}, {opacity:1, transform:'translateY(0)'}],
+    {duration:800, delay:delay || 0, easing:V17_EASE_APPLE, fill:'backwards'}
+  );
+}
+
+function v17PlayIntro(){
+  if(v17Played) return;
+  v17Played = true;
+  v17RevealChars(document.querySelector('h1'), 50);
+  var items = document.querySelectorAll('.lede, .lede-sub, .thesis-line, .gauge-block');
+  items.forEach(function(el, i){ v17FadeUp(el, 200 + i * 90); });
+  v17FadeUp(document.querySelector('.card'), 250);
+  var h2 = document.querySelector('.step.visible h2');
+  v17RevealChars(h2, 40);
+}
+
+if (window.parent === window) {
+  /* Открыта напрямую — играем при загрузке. */
+  requestAnimationFrame(function(){ v17PlayIntro(); });
+} else {
+  window.addEventListener('message', function(ev){
+    if (ev.data && ev.data.v17Visible) v17PlayIntro();
+  });
 }
 
 showStep(0);
