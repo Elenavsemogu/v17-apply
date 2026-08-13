@@ -858,7 +858,11 @@ showStep(0);
 if (window.parent !== window) {
   var v17LastH = 0;
   var v17SendHeight = function(){
-    var h = document.documentElement.scrollHeight;
+    /* Высота контента (не documentElement.scrollHeight — тот зависит от высоты
+       iframe и даёт положительную обратную связь: бесконечный рост). */
+    var wrap = document.querySelector('.wrap');
+    if (!wrap) return;
+    var h = Math.ceil(wrap.getBoundingClientRect().height) + 4;
     if (Math.abs(h - v17LastH) > 4) {
       v17LastH = h;
       window.parent.postMessage({ v17FormHeight: h }, '*');
