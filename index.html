@@ -865,7 +865,9 @@ if (window.parent !== window) {
     var h = Math.ceil(wrap.getBoundingClientRect().height) + 4;
     if (Math.abs(h - v17LastH) > 4) {
       v17LastH = h;
-      window.parent.postMessage({ v17FormHeight: h }, '*');
+      /* v17InnerH — фактическая высота вьюпорта iframe: родитель по ней
+         калибрует CSS-высоту (зум Тильды может их рассинхронизировать). */
+      window.parent.postMessage({ v17FormHeight: h, v17InnerH: window.innerHeight }, '*');
     }
   };
   new MutationObserver(v17SendHeight).observe(document.body, { subtree: true, childList: true, attributes: true });
