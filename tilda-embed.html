@@ -1,12 +1,15 @@
-<!-- V17: замена всего блока «Contact us» (rec1673903821) на квалификационную форму.
-     Вставляется в Настройки сайта → Вставка кода → HEAD (действует на всех страницах,
-     блок глобальный). Артборд блока скрывается целиком, вместо него в обычном потоке:
-     iframe с формой (автовысота по postMessage) + воспроизведённая нижняя полоса
-     подвала — соцсети, меню, Privacy policy, копирайт (те же ссылки и шрифты). -->
+<!-- V17: блок «Contact us» (rec1673903821) убирается со всех страниц —
+     вместо него остаётся только нижняя полоса подвала (соцсети, меню,
+     Privacy policy, копирайт — те же ссылки и шрифты, что в оригинале).
+     Исключение: /contact — там блок остаётся как есть (решение Леры 13.08,
+     форма живёт только на отдельной странице /apply).
+     Вставляется в Настройки сайта → Вставка кода → HEAD. -->
 <script>
 (function () {
-  var FORM_URL = 'https://elenavsemogu.github.io/v17-apply/';
   var REC = 'rec1673903821';
+
+  /* На странице «Контакты» родной блок с формой остаётся без изменений. */
+  if (/^\/contact(\/|$)/.test(location.pathname)) return;
 
   function build() {
     var rec = document.getElementById(REC); if (!rec) return false;
@@ -19,8 +22,7 @@
     wrap.innerHTML =
       '<style>' +
       '#v17-replace{background:#010101}' +
-      '#v17-replace iframe{width:100%;height:900px;border:0;display:block}' +
-      '#v17-strip{max-width:1200px;margin:0 auto;padding:0 20px 40px;color:#F7F2EF;font-family:Manrope,Arial,sans-serif}' +
+      '#v17-strip{max-width:1200px;margin:0 auto;padding:56px 20px 40px;color:#F7F2EF;font-family:Manrope,Arial,sans-serif}' +
       '#v17-strip .v17-hr{height:1px;background:rgba(247,242,239,.25);margin:0 0 36px}' +
       '#v17-strip .v17-row{display:flex;align-items:flex-start;gap:40px;flex-wrap:wrap}' +
       '#v17-strip .v17-soc-title{font-size:16px;margin:0 0 16px}' +
@@ -32,10 +34,10 @@
       '#v17-strip .v17-menu a,#v17-strip .v17-right a{color:#F7F2EF;text-decoration:none;font-size:12px;letter-spacing:.08em;text-transform:uppercase}' +
       '#v17-strip .v17-menu a:hover,#v17-strip .v17-right a:hover{opacity:.7}' +
       '#v17-strip .v17-right{text-align:right;padding-top:6px}' +
+      '#v17-strip .v17-mail{text-transform:none !important;font-size:14px !important;letter-spacing:0 !important}' +
       '#v17-strip .v17-copy{font-size:12px;opacity:.75;margin-top:14px}' +
       '@media(max-width:720px){#v17-strip .v17-row{flex-direction:column;gap:28px}#v17-strip .v17-vline{display:none}#v17-strip .v17-menu{justify-content:flex-start}#v17-strip .v17-right{text-align:left}}' +
       '</style>' +
-      '<iframe src="' + FORM_URL + '" title="V17 application form" scrolling="no"></iframe>' +
       '<div id="v17-strip">' +
         '<div class="v17-hr"></div>' +
         '<div class="v17-row">' +
@@ -56,6 +58,8 @@
             '<a href="/contact">Contact us</a>' +
           '</nav>' +
           '<div class="v17-right">' +
+            '<a class="v17-mail" href="mailto:team@v17.vc">team@v17.vc</a>' +
+            '<div style="height:10px"></div>' +
             '<a href="/policy">Privacy policy</a>' +
             '<div class="v17-copy">2025 © V17</div>' +
           '</div>' +
@@ -74,40 +78,115 @@
   }
   window.addEventListener('resize', fitStrip);
 
-  /* когда блок с формой доскроллен во вьюпорт — говорим форме играть анимации */
-  var v17Seen = false;
-  function watchVisible() {
-    var f = document.querySelector('#v17-replace iframe');
-    if (!f || !('IntersectionObserver' in window)) { v17Seen = true; return; }
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) {
-        if (!e.isIntersecting) return;
-        v17Seen = true;
-        try { f.contentWindow.postMessage({ v17Visible: 1 }, '*'); } catch (_) {}
-        io.disconnect();
-      });
-    }, { rootMargin: '0px 0px -15% 0px' });
-    io.observe(f);
-  }
-
-  /* автовысота: форма шлёт свою высоту контента postMessage-ом.
-     Заодно подтверждаем видимость (на случай, если iframe загрузился
-     позже, чем сработал IntersectionObserver). */
-  window.addEventListener('message', function (ev) {
-    if (!ev.data || !ev.data.v17FormHeight) return;
-    var f = document.querySelector('#v17-replace iframe');
-    if (!f) return;
-    if (v17Seen) { try { f.contentWindow.postMessage({ v17Visible: 1 }, '*'); } catch (_) {} }
-    var h = Math.min(Math.max(ev.data.v17FormHeight + 40, 500), 6000);
-    if (Math.abs((parseFloat(f.style.height) || 0) - h) > 4) f.style.height = h + 'px';
-  });
-
   /* зероблок рендерится скриптами Тильды — ждём появления */
   var tries = 0;
   var t = setInterval(function () {
-    if (build()) { fitStrip(); watchVisible(); clearInterval(t); }
+    if (build()) { fitStrip(); clearInterval(t); }
     else if (++tries > 60) clearInterval(t);
   }, 400);
   document.addEventListener('DOMContentLoaded', build);
+})();
+
+/* Все кнопки APPLY по сайту ведут на страницу формы /apply.
+   В зероблоках ссылки прописаны на /contact — переписываем на лету
+   (в т.ч. в шапке и на плашке блога). Работает на всех страницах. */
+(function () {
+  function retarget() {
+    document.querySelectorAll('a[href="/contact"], a[href="https://v17.vc/contact"]').forEach(function (a) {
+      if (/^\s*apply\s*$/i.test(a.textContent)) a.setAttribute('href', '/apply');
+    });
+  }
+  var n = 0;
+  var t = setInterval(function () { retarget(); if (++n > 20) clearInterval(t); }, 500);
+  document.addEventListener('DOMContentLoaded', retarget);
+})();
+
+/* Лого партнёров кликабельны (правка Леры 13.08). Все 5 лого — один общий
+   SVG (Frame_2087328167) в зероблоке rec2925611001; поверх картинки кладём
+   5 невидимых ссылок по зонам карточек (в долях ширины SVG 1429px,
+   карточки по 280.625px с шагом 286.875px — работает на любом масштабе). */
+(function () {
+  var LINKS = [
+    ['Yellow Rocks', 'https://yellowrocks.vc/'],
+    ['AdQuantum', 'https://www.adquantum.com/'],
+    ['MountFund', 'https://www.mountfund.com/'],
+    ['Funders', 'https://www.funders.vc/'],
+    ['D&P', 'https://www.linkedin.com/company/d-p-fund/']
+  ];
+  function decorate(el) {
+    if (el.dataset.v17links) return;
+    el.dataset.v17links = '1';
+    var atom = el.querySelector('.tn-atom') || el;
+    atom.style.position = 'relative';
+    LINKS.forEach(function (l, i) {
+      var a = document.createElement('a');
+      a.href = l[1];
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.setAttribute('aria-label', l[0]);
+      a.style.cssText = 'position:absolute;top:0;height:100%;z-index:5;cursor:pointer;' +
+        'width:19.64%;left:' + (i * 20.075).toFixed(3) + '%;';
+      atom.appendChild(a);
+    });
+  }
+  /* Тильда крутит лого «бегущей строкой» и клонирует элемент — вешаем
+     ссылки на КАЖДУЮ копию картинки и следим за появлением новых клонов. */
+  function buildAll() {
+    var found = false;
+    document.querySelectorAll('#rec2925611001 .tn-elem img').forEach(function (im) {
+      if (im.src.indexOf('2087328167') > -1) {
+        found = true;
+        decorate(im.closest('.tn-elem'));
+      }
+    });
+    return found;
+  }
+  var n = 0;
+  var t = setInterval(function () {
+    if (buildAll()) {
+      clearInterval(t);
+      var rec = document.getElementById('rec2925611001');
+      if (rec && window.MutationObserver) {
+        new MutationObserver(function () { buildAll(); })
+          .observe(rec, { childList: true, subtree: true });
+      }
+    } else if (++n > 40) clearInterval(t);
+  }, 500);
+
+  /* Поверх бегущей строки лежат прозрачные слои соседних зероблоков и
+     перехватывают клики. Поэтому дублируем: ловим клик на документе,
+     по координатам определяем карточку и открываем её ссылку. */
+  document.addEventListener('click', function (ev) {
+    if (ev.target && ev.target.closest && ev.target.closest('[data-v17links] a')) return;
+    var box = null;
+    document.querySelectorAll('#rec2925611001 .tn-elem[data-v17links]').forEach(function (el) {
+      var r = el.getBoundingClientRect();
+      if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom) box = r;
+    });
+    if (!box) return;
+    var idx = Math.min(4, Math.floor((ev.clientX - box.left) / box.width / 0.20075));
+    window.open(LINKS[idx][1], '_blank', 'noopener');
+  });
+  /* курсор-«рука» над строкой логотипов */
+  document.addEventListener('mousemove', function (ev) {
+    var over = false;
+    document.querySelectorAll('#rec2925611001 .tn-elem[data-v17links]').forEach(function (el) {
+      var r = el.getBoundingClientRect();
+      if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom) over = true;
+    });
+    document.documentElement.style.cursor = over ? 'pointer' : '';
+  });
+})();
+
+/* Анимация фигуры на главном экране (правка Леры 13.08): орбиты со звёздами
+   (Frame_2087328170 / Group.svg в hero-блоке rec2957942901) плавно «парят». */
+(function () {
+  var css = '@keyframes v17-float{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-14px) rotate(3deg)}}' +
+    '#rec2957942901 .tn-elem[data-elem-id="1786543204958"] img,' +
+    '#rec2957942901 .tn-elem[data-elem-id="1786543370346"] img' +
+    '{animation:v17-float 7s ease-in-out infinite;will-change:transform}';
+  var st = document.createElement('style');
+  st.textContent = css;
+  (document.head || document.documentElement).appendChild(st);
 })();
 </script>

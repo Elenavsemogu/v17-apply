@@ -25,14 +25,15 @@ var CONFIG = {
   TELEGRAM_TOKEN: '',      // токен бота от @BotFather
   TELEGRAM_CHAT_ID: '',    // id чата заявок (см. README, шаг 3)
 
-  // Почта для отказов. Пусто = ящик владельца скрипта.
-  // Чтобы слать с deals@v17.vc — либо скрипт разворачивается из-под этого ящика,
-  // либо ящик добавлен алиасом в Gmail владельца скрипта.
-  MAIL_FROM_ALIAS: '',
+  // Почта для отказов: noreply@v17.vc (решение Леры 13.08 — на неё не отвечают).
+  // ⚠️ Чтобы Gmail разрешил слать «от» этого адреса, ящик должен существовать
+  // и быть добавлен алиасом в Gmail владельца скрипта (Настройки → Аккаунты
+  // и импорт → «Отправлять письма как»). Пока алиас не настроен, скрипт
+  // автоматически отправит письмо с основного ящика (см. sendDeclineMail).
+  MAIL_FROM_ALIAS: 'noreply@v17.vc',
   MAIL_FROM_NAME: 'V17 Team',
-  // Куда уходят ответы кандидатов на письма-отказы. Работает даже если письмо
-  // отправлено с личного ящика: кандидат жмёт Reply — и ответ идёт команде.
-  MAIL_REPLY_TO: 'deals@v17.vc',
+  // Reply-To не ставим: письма идут с noreply, ответы не предполагаются.
+  MAIL_REPLY_TO: '',
 
   SHEET_NAME: 'Applications',
   SETTINGS_SHEET: 'Settings',
@@ -205,6 +206,7 @@ function handleFormSubmission(d) {
   d.pitch_deck = deck;
 
   var sheet = getSheet();
+  var statusCol = SHEET_HEADERS.indexOf('Status') + 1;
   var row = [
     d.submitted_at || new Date().toISOString(),
     d.hard_filter_failed ? 'YES' : '',
@@ -219,6 +221,24 @@ function handleFormSubmission(d) {
   ];
   sheet.appendRow(row);
   var rowNum = sheet.getLastRow();
+
+  /* Заявкам «ниже порога» (нажали Submit anyway) письмо-отказ уходит СРАЗУ
+     автоматически (решение Леры, п.3 от 13.08) — шаблон «Below thresholds».
+     Если отправка не удалась, статус остаётся new и отказ можно послать
+     кнопкой из Telegram как обычно. */
+  if (d.hard_filter_failed && d.contact_email) {
+    try {
+      var tpls = getDeclineTemplates();
+      var tpl = tpls.filter(function (t) { return /threshold/i.test(t.label); })[0] || tpls[1] || tpls[0];
+      var fill = function (s) {
+        return s.replace(/{{name}}/g, d.contact_name || 'there')
+                .replace(/{{company}}/g, d.company_name || 'your company');
+      };
+      sendDeclineMail(d.contact_email, fill(tpl.subject), fill(tpl.body));
+      sheet.getRange(rowNum, statusCol).setValue('declined (auto: ' + tpl.label + ')');
+      d.auto_declined = true;
+    } catch (err) { /* остаётся ручной отказ из TG */ }
+  }
 
   var notionUrl = '';
   try {
@@ -237,6 +257,24 @@ function handleFormSubmission(d) {
   }
 
   return jsonResponse({ ok: true });
+}
+
+/* Письмо-отказ. Пытаемся отправить от noreply@v17.vc; если алиас ещё
+   не настроен в Gmail владельца скрипта (или ящик не создан) — Gmail кинет
+   ошибку, тогда шлём с основного ящика, чтобы отказ не потерялся. */
+function sendDeclineMail(email, subject, body) {
+  var opts = { name: CONFIG.MAIL_FROM_NAME };
+  if (CONFIG.MAIL_REPLY_TO) opts.replyTo = CONFIG.MAIL_REPLY_TO;
+  if (CONFIG.MAIL_FROM_ALIAS) {
+    try {
+      opts.from = CONFIG.MAIL_FROM_ALIAS;
+      GmailApp.sendEmail(email, subject, body, opts);
+      return;
+    } catch (e) {
+      delete opts.from;
+    }
+  }
+  GmailApp.sendEmail(email, subject, body, opts);
 }
 
 /* Приложенный pitch deck → папка «V17 pitch decks» на Drive владельца скрипта.
@@ -302,7 +340,8 @@ function createNotionPage(d) {
   if (d.hard_filter_failed) {
     children.push({ callout: {
       icon: { emoji: '⚠️' },
-      rich_text: rt('Did NOT pass the quick filter (MRR/stage below thresholds). Separate pool / cohort financing.')
+      rich_text: rt('Did NOT pass the quick filter (MRR below threshold). Separate pool / cohort financing.' +
+        (d.auto_declined ? ' Auto-decline email has been sent.' : ''))
     }});
   }
   var line = function (label, value) {
@@ -398,6 +437,7 @@ function notifyTelegram(d, rowNum, notionUrl) {
 
   var lines = [
     (d.hard_filter_failed ? '⚠️ <b>Новая заявка (НЕ прошла фильтр)</b>' : '✅ <b>Новая заявка</b>'),
+    (d.auto_declined ? '✉️ Письмо-отказ уже отправлено автоматически' : ''),
     '',
     '<b>' + esc(d.company_name || '(без названия)') + '</b> — ' + esc(d.website || ''),
     esc(joined(d.segment).toUpperCase()) + ' · ' + esc(d.stage || '—') + ' · рынки: ' + esc(joined(d.market) || '—'),
@@ -526,10 +566,7 @@ function handleCallback(cb) {
     var fill = function (s) {
       return s.replace(/{{name}}/g, name).replace(/{{company}}/g, company);
     };
-    var mailOpts = { name: CONFIG.MAIL_FROM_NAME };
-    if (CONFIG.MAIL_FROM_ALIAS) mailOpts.from = CONFIG.MAIL_FROM_ALIAS;
-    if (CONFIG.MAIL_REPLY_TO) mailOpts.replyTo = CONFIG.MAIL_REPLY_TO;
-    GmailApp.sendEmail(email, fill(tpl.subject), fill(tpl.body), mailOpts);
+    sendDeclineMail(email, fill(tpl.subject), fill(tpl.body));
 
     sheet.getRange(rowNum, statusCol).setValue('declined (' + tpl.label + ')');
     tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Отказ отправлен на ' + email });

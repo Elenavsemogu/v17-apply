@@ -1,0 +1,36 @@
+<!-- V17: содержимое страницы /apply — квалификационная форма.
+     Вставляется в блок «HTML-код» (T123) на странице Apply в Тильде.
+     Автовысота по postMessage из формы + запуск анимаций при попадании
+     во вьюпорт (форма ждёт {v17Visible:1}). -->
+<div id="v17-apply-page" style="background:#F7F2EF">
+  <iframe src="https://elenavsemogu.github.io/v17-apply/" title="V17 application form"
+          scrolling="no" style="width:100%;height:1200px;border:0;display:block"></iframe>
+</div>
+<script>
+(function () {
+  var box = document.getElementById('v17-apply-page');
+  var f = box && box.querySelector('iframe');
+  if (!f) return;
+
+  /* автовысота: форма шлёт высоту контента postMessage-ом */
+  window.addEventListener('message', function (ev) {
+    if (!ev.data || !ev.data.v17FormHeight || ev.source !== f.contentWindow) return;
+    var h = Math.min(Math.max(ev.data.v17FormHeight + 40, 600), 6000);
+    if (Math.abs((parseFloat(f.style.height) || 0) - h) > 4) f.style.height = h + 'px';
+    if (seen) send();
+  });
+
+  /* анимации формы — когда доскроллили до неё (на /apply это почти сразу) */
+  var seen = false;
+  function send() { try { f.contentWindow.postMessage({ v17Visible: 1 }, '*'); } catch (_) {} }
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        seen = true; send(); io.disconnect();
+      });
+    }, { rootMargin: '0px 0px -10% 0px' });
+    io.observe(f);
+  } else { seen = true; send(); }
+})();
+</script>
