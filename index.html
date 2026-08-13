@@ -8,9 +8,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script>
-  /* До отрисовки: тёмная тема по ?theme=dark (для встраивания в тёмные секции). */
-  if (new URLSearchParams(location.search).get('theme') === 'dark') {
+  /* До отрисовки: тёмная тема по ?theme=dark (для встраивания в тёмные секции),
+     ?embed=1 — без обложки с критериями, только карточка формы (для футера). */
+  var v17Params = new URLSearchParams(location.search);
+  if (v17Params.get('theme') === 'dark') {
     document.documentElement.classList.add('theme-dark');
+  }
+  if (v17Params.get('embed') === '1') {
+    document.documentElement.classList.add('embed');
   }
 </script>
 <style>
@@ -52,6 +57,10 @@
     --warn:#E08B72;
     --warn-soft:#2C1812;
   }
+  /* Режим встраивания (?embed=1): без сайдбара-обложки, карточка на всю ширину. */
+  html.embed .sidebar{display:none}
+  html.embed .wrap{display:block;max-width:none;padding:0}
+  html.embed body{background:transparent}
   *{box-sizing:border-box;margin:0;padding:0}
   body{
     font-family:var(--font);
