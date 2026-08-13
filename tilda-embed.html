@@ -1,115 +1,84 @@
-<!-- V17: квалификационная форма вместо формы Contact us (глобальный футер).
-     Вставляется T123-блоком на страницу-шаблон футера Тильды.
-     Скрывает старую зероблок-форму (rec1673903821) и ставит на её место iframe
-     с формой https://elenavsemogu.github.io/v17-apply/ (режим embed).
-     Высота подстраивается автоматически (форма шлёт postMessage), нижняя часть
-     футера сдвигается. Все коэффициенты сдвига калибруются на месте, потому что
-     Тильда на широких экранах масштабирует элементы по-разному (inline zoom). -->
+<!-- V17: замена всего блока «Contact us» (rec1673903821) на квалификационную форму.
+     Вставляется в Настройки сайта → Вставка кода → HEAD (действует на всех страницах,
+     блок глобальный). Артборд блока скрывается целиком, вместо него в обычном потоке:
+     iframe с формой (автовысота по postMessage) + воспроизведённая нижняя полоса
+     подвала — соцсети, меню, Privacy policy, копирайт (те же ссылки и шрифты). -->
 <script>
 (function () {
-  var FORM_URL = 'https://elenavsemogu.github.io/v17-apply/?embed=1';
-  var REC = 'rec1673903821';                                  /* зероблок футера с формой */
-  var HOLD_ID = '1765362627485';                              /* элемент старой формы */
-  var HIDE_IDS = ['1765363640113', '1765363737226000001'];    /* подложка и текст Submit */
-  /* всё, что ниже формы: разделитель, «Our social media», вертикальная черта,
-     меню футера, Privacy policy, копирайт, иконки соцсетей */
-  var BELOW_IDS = ['1786548538565000001', '1765283375888', '1786550108929',
-                   '1765361436207000001', '1786522672413000001', '1765361841807000010',
-                   '1765361841786000009', '1765361849110000012', '1765361845904000011',
-                   '1786549969261', '1786549962919'];
-  var GAP = 56;                       /* визуальный зазор между формой и футером, px */
-  var iframe = null, wantCssH = 700;
+  var FORM_URL = 'https://elenavsemogu.github.io/v17-apply/';
+  var REC = 'rec1673903821';
 
-  function el(rec, id) { return rec.querySelector('.tn-elem__1673903821' + id); }
-
-  function setup() {
+  function build() {
     var rec = document.getElementById(REC); if (!rec) return false;
-    var hold = el(rec, HOLD_ID); if (!hold) return false;
-    if (hold.querySelector('iframe')) return true;
-    HIDE_IDS.forEach(function (id) { var e = el(rec, id); if (e) e.style.display = 'none'; });
-    var atom = hold.querySelector('.tn-atom'); if (atom) atom.style.display = 'none';
-    iframe = document.createElement('iframe');
-    iframe.src = FORM_URL;
-    iframe.setAttribute('scrolling', 'no');
-    iframe.setAttribute('title', 'V17 application form');
-    iframe.style.cssText = 'width:100%;height:' + wantCssH + 'px;border:0;display:block;background:transparent;overflow:hidden';
-    hold.appendChild(iframe);
+    if (document.getElementById('v17-replace')) return true;
+    var art = rec.querySelector('.t396__artboard'); if (!art) return false;
+    art.style.display = 'none';
+
+    var wrap = document.createElement('div');
+    wrap.id = 'v17-replace';
+    wrap.innerHTML =
+      '<style>' +
+      '#v17-replace{background:#010101}' +
+      '#v17-replace iframe{width:100%;height:900px;border:0;display:block}' +
+      '#v17-strip{max-width:1200px;margin:0 auto;padding:0 20px 40px;color:#F7F2EF;font-family:Manrope,Arial,sans-serif}' +
+      '#v17-strip .v17-hr{height:1px;background:rgba(247,242,239,.25);margin:0 0 36px}' +
+      '#v17-strip .v17-row{display:flex;align-items:flex-start;gap:40px;flex-wrap:wrap}' +
+      '#v17-strip .v17-soc-title{font-size:16px;margin:0 0 16px}' +
+      '#v17-strip .v17-icons{display:flex;gap:16px}' +
+      '#v17-strip .v17-icons a{width:40px;height:40px;display:block}' +
+      '#v17-strip .v17-icons img{width:40px;height:40px;display:block}' +
+      '#v17-strip .v17-vline{width:1px;align-self:stretch;background:#F7F2EF;opacity:.9}' +
+      '#v17-strip .v17-menu{display:flex;gap:32px;flex-wrap:wrap;padding-top:2px;flex:1;justify-content:flex-start}' +
+      '#v17-strip .v17-menu a,#v17-strip .v17-right a{color:#F7F2EF;text-decoration:none;font-size:12px;letter-spacing:.08em;text-transform:uppercase}' +
+      '#v17-strip .v17-menu a:hover,#v17-strip .v17-right a:hover{opacity:.7}' +
+      '#v17-strip .v17-right{text-align:right;padding-top:6px}' +
+      '#v17-strip .v17-copy{font-size:12px;opacity:.75;margin-top:14px}' +
+      '@media(max-width:720px){#v17-strip .v17-row{flex-direction:column;gap:28px}#v17-strip .v17-vline{display:none}#v17-strip .v17-menu{justify-content:flex-start}#v17-strip .v17-right{text-align:left}}' +
+      '</style>' +
+      '<iframe src="' + FORM_URL + '" title="V17 application form" scrolling="no"></iframe>' +
+      '<div id="v17-strip">' +
+        '<div class="v17-hr"></div>' +
+        '<div class="v17-row">' +
+          '<div>' +
+            '<p class="v17-soc-title">Our social media</p>' +
+            '<div class="v17-icons">' +
+              '<a href="https://x.com/V17_VC" target="_blank" rel="noopener" aria-label="X (Twitter)">' +
+                '<img src="https://static.tildacdn.com/tild3339-6261-4130-a135-383030343730/twitter-x_2.svg" alt="X"></a>' +
+              '<a href="https://www.linkedin.com/company/v17-vc/about/?viewAsMember=true" target="_blank" rel="noopener" aria-label="LinkedIn">' +
+                '<img src="https://static.tildacdn.com/tild3066-3461-4863-a136-353865623031/link.svg" alt="LinkedIn"></a>' +
+            '</div>' +
+          '</div>' +
+          '<div class="v17-vline"></div>' +
+          '<nav class="v17-menu">' +
+            '<a href="/">Main</a>' +
+            '<a href="/#programs">Programs</a>' +
+            '<a href="/blog">Blog</a>' +
+            '<a href="/contact">Contact us</a>' +
+          '</nav>' +
+          '<div class="v17-right">' +
+            '<a href="/policy">Privacy policy</a>' +
+            '<div class="v17-copy">2025 © V17</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    art.parentNode.insertBefore(wrap, art.nextSibling);
     return true;
   }
 
-  /* Во сколько визуальных px обходится 100px margin-top у элемента. */
-  function shiftFactor(e) {
-    var m0 = parseFloat(e.style.marginTop) || 0;
-    var r0 = e.getBoundingClientRect().top;
-    e.style.marginTop = (m0 + 100) + 'px';
-    var r1 = e.getBoundingClientRect().top;
-    e.style.marginTop = m0 ? m0 + 'px' : '';
-    var f = (r1 - r0) / 100;
-    return f > 0.05 ? f : 1;
-  }
-
-  function layout() {
-    var rec = document.getElementById(REC); if (!rec || !iframe) return;
-    var hold = el(rec, HOLD_ID);
-    var art = rec.querySelector('.t396__artboard');
-    if (!hold || !art) return;
-
-    /* 1. Высота iframe меняется ТОЛЬКО по сообщению формы (wantCssH):
-       пересчёт по каждому тику со старым знаменателем схлопывает высоту. */
-    if (Math.abs((parseFloat(iframe.style.height) || 0) - wantCssH) > 2) {
-      iframe.style.height = wantCssH + 'px';
-    }
-    hold.style.height = iframe.style.height;
-
-    /* 2. Сдвиг нижней части футера под фактический низ формы.
-       Факторы меряем каждый проход (кеш, снятый во время анимаций, врёт). */
-    var fb = iframe.getBoundingClientRect().bottom;
-    var minBase = null, items = [];
-    BELOW_IDS.forEach(function (id) {
-      var e = el(rec, id); if (!e) return;
-      var factor = shiftFactor(e);
-      var applied = (parseFloat(e.style.marginTop) || 0) * factor;
-      var baseTop = e.getBoundingClientRect().top - applied;
-      items.push({ e: e, factor: factor, baseTop: baseTop });
-      if (minBase === null || baseTop < minBase) minBase = baseTop;
-    });
-    if (minBase === null) return;
-    var deltaVis = fb + GAP - minBase;
-    items.forEach(function (it) {
-      var m = deltaVis / it.factor;
-      var cur = parseFloat(it.e.style.marginTop) || 0;
-      if (Math.abs(m - cur) > 2) it.e.style.marginTop = m + 'px';
-    });
-
-    /* 3. Высота артборда: базу запоминаем, при пересчёте Тильдой — обновляем. */
-    var h0 = art.getBoundingClientRect().height;
-    var s0 = art.style.height;
-    art.style.height = (art.offsetHeight + 100) + 'px';
-    var artFactor = (art.getBoundingClientRect().height - h0) / 100 || 1;
-    art.style.height = s0;
-    var curH = art.offsetHeight;
-    if (Math.abs(curH - (parseFloat(art.dataset.v17set || '0'))) > 2) {
-      /* Тильда переписала высоту — принимаем её за новую базу */
-      art.dataset.v17base = curH;
-    }
-    var baseH = parseFloat(art.dataset.v17base) || curH;
-    var newH = baseH + deltaVis / artFactor;
-    if (Math.abs(newH - curH) > 2) art.style.height = newH + 'px';
-    art.dataset.v17set = newH;
-  }
-
+  /* автовысота: форма шлёт свою высоту контента postMessage-ом */
   window.addEventListener('message', function (ev) {
-    if (ev.data && ev.data.v17FormHeight && iframe) {
-      var contentH = Math.min(Math.max(ev.data.v17FormHeight, 300), 4200);
-      var innerH = ev.data.v17InnerH || 0;
-      var cssH = parseFloat(iframe.style.height) || contentH;
-      /* Пара (контент, вьюпорт) снята формой одновременно: нужная css-высота =
-         текущая × контент/вьюпорт. Если zoom нет — просто contentH. */
-      wantCssH = Math.ceil(innerH > 0 ? cssH * (contentH / innerH) : contentH);
-      wantCssH = Math.min(Math.max(wantCssH, 300), 4200);
-      layout();
-    }
+    if (!ev.data || !ev.data.v17FormHeight) return;
+    var f = document.querySelector('#v17-replace iframe');
+    if (!f) return;
+    var h = Math.min(Math.max(ev.data.v17FormHeight + 40, 500), 4200);
+    if (Math.abs((parseFloat(f.style.height) || 0) - h) > 4) f.style.height = h + 'px';
   });
-  setInterval(function () { if (setup()) layout(); }, 600);
+
+  /* зероблок рендерится скриптами Тильды — ждём появления */
+  var tries = 0;
+  var t = setInterval(function () {
+    if (build() || ++tries > 60) clearInterval(t);
+  }, 400);
+  document.addEventListener('DOMContentLoaded', build);
 })();
 </script>
