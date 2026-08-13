@@ -7,6 +7,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+  /* До отрисовки: тёмная тема по ?theme=dark (для встраивания в тёмные секции). */
+  if (new URLSearchParams(location.search).get('theme') === 'dark') {
+    document.documentElement.classList.add('theme-dark');
+  }
+</script>
 <style>
   /* Палитра и типографика — под фирменный стиль v17.vc:
      кремовый фон, фирменный красный, геометричный гротеск. */
@@ -27,6 +33,24 @@
     --warn-soft:#F7E7E3;
     --radius:6px;
     --font:'Jost','Century Gothic','Futura',sans-serif;
+  }
+  /* Тёмная тема — для встраивания в тёмную секцию Contact us на v17.vc.
+     Включается параметром ?theme=dark (класс ставится скриптом в <head>). */
+  html.theme-dark{
+    --paper:#010101;
+    --paper-raised:#161412;
+    --ink:#F7F2EF;
+    --ink-soft:#D8D1C8;
+    --ink-muted:#8F887E;
+    --line:#3B3733;
+    --capital:#B22726;
+    --capital-soft:#2A1414;
+    --media:#F7F2EF;
+    --media-soft:#26231F;
+    --ok:#8CC7A8;
+    --ok-soft:#15271E;
+    --warn:#E08B72;
+    --warn-soft:#2C1812;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{
@@ -819,6 +843,23 @@ async function submitForm(){
 }
 
 showStep(0);
+
+/* При встраивании в iframe сообщаем родителю свою высоту,
+   чтобы страница Тильды подгоняла iframe без внутреннего скролла. */
+if (window.parent !== window) {
+  var v17LastH = 0;
+  var v17SendHeight = function(){
+    var h = document.documentElement.scrollHeight;
+    if (Math.abs(h - v17LastH) > 4) {
+      v17LastH = h;
+      window.parent.postMessage({ v17FormHeight: h }, '*');
+    }
+  };
+  new MutationObserver(v17SendHeight).observe(document.body, { subtree: true, childList: true, attributes: true });
+  window.addEventListener('load', v17SendHeight);
+  window.addEventListener('resize', v17SendHeight);
+  setInterval(v17SendHeight, 700);
+}
 </script>
 
 </body>
