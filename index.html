@@ -450,7 +450,13 @@
         <div class="field">
           <label>Pitch deck — link or attachment <span style="color:var(--warn)">*</span></label>
           <input type="url" id="pitch_deck" placeholder="https://">
-          <input type="file" id="pitch_deck_file" accept=".pdf,.ppt,.pptx,.key,.zip" style="margin-top:8px;font-size:13px;color:var(--ink-soft)">
+          <!-- Нативный file-input скрыт: браузер подписывает его на языке системы
+               («Выберите файл»), а нам нужен английский. Кнопка — label for=. -->
+          <div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <label for="pitch_deck_file" class="pill" style="display:inline-block;margin:0">Attach a file</label>
+            <span id="deckFileName" style="font-size:13px;color:var(--ink-soft)">No file attached</span>
+          </div>
+          <input type="file" id="pitch_deck_file" accept=".pdf,.ppt,.pptx,.key,.zip" style="display:none">
           <p class="hint">Paste a link or attach a file (PDF/PPT, up to 10 MB).</p>
           <div id="deckError"></div>
         </div>
@@ -684,15 +690,18 @@ document.getElementById('contact_email').addEventListener('input', checkEmail);
 const DECK_MAX_BYTES = 10 * 1024 * 1024;
 document.getElementById('pitch_deck_file').addEventListener('change', function(){
   const errSlot = document.getElementById('deckError');
+  const nameSlot = document.getElementById('deckFileName');
   const file = this.files && this.files[0];
   delete data.pitch_deck_file;
   errSlot.innerHTML = '';
+  nameSlot.textContent = 'No file attached';
   if(!file) return;
   if(file.size > DECK_MAX_BYTES){
     this.value = '';
     errSlot.innerHTML = '<p style="font-size:12px;color:var(--warn);margin-top:5px">The file is over 10 MB — please share a link instead.</p>';
     return;
   }
+  nameSlot.textContent = file.name;
   const reader = new FileReader();
   reader.onload = function(){
     data.pitch_deck_file = {
