@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>V17 — Apply for funding</title>
+<title>V17 — Apply</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -105,6 +105,23 @@
     border-top:1px solid var(--line);
   }
   .thesis-line:last-of-type{border-bottom:1px solid var(--line)}
+  /* Сегменты: B2C и B2B — два отдельных предложения с новой строки,
+     направление подсвечено красным (правка Леры 14.08). */
+  .seg-line{display:block}
+  .seg-line + .seg-line{margin-top:4px}
+  .seg-line b{color:var(--capital);font-weight:600}
+  .back-link{
+    display:inline-block;
+    margin-bottom:16px;
+    font-size:12px;
+    font-weight:600;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--ink-muted);
+    text-decoration:none;
+    transition:color var(--transition-apple);
+  }
+  .back-link:hover{color:var(--capital)}
   .thesis-tag{
     font-size:11px;
     font-weight:600;
@@ -301,17 +318,26 @@
 <div class="wrap">
 
   <div class="sidebar">
-    <h1>Apply for funding</h1>
-    <p class="lede">Capital and marketing accelerator and budget for a product that outpaces its own marketing.</p>
+    <!-- Уйти с формы обратно на сайт. target=_top — форма живёт в iframe
+         на v17.vc/apply, без этого переход открылся бы внутри рамки. -->
+    <a class="back-link" href="https://v17.vc/" target="_top">&larr; Back to v17.vc</a>
+    <h1>Apply</h1>
+    <p class="lede">Capital and marketing for a product that can outpace its own growth.</p>
     <p class="lede-sub">Equity, marketing-for-equity and cohort financing for B2C and B2B teams at Seed - Series A+. The application takes 5-7 minutes — we take it from there.</p>
 
-    <div class="thesis-line"><span class="thesis-tag">Segments</span><span>B2C Consumer, HealthTech, FinTech, EdTech, Wellbeing &amp; Lifestyle &middot; B2B MarTech, AI assistants and Productivity Tools, Future of Work</span></div>
+    <div class="thesis-line">
+      <span class="thesis-tag">Segments</span>
+      <span>
+        <span class="seg-line">&middot; <b>B2C</b> Consumer, HealthTech, FinTech, EdTech, Wellbeing &amp; Lifestyle</span>
+        <span class="seg-line">&middot; <b>B2B</b> MarTech, AI assistants and Productivity Tools, Future of Work</span>
+      </span>
+    </div>
     <div class="thesis-line"><span class="thesis-tag">Stage</span><span>Seed - Series A+</span></div>
     <div class="thesis-line"><span class="thesis-tag">MRR</span><span>from $10k (B2C) &middot; from $30k (B2B)</span></div>
     <div class="thesis-line"><span class="thesis-tag">Markets</span><span>Global, US, Europe</span></div>
 
     <div class="gauge-block">
-      <div class="gauge-label"><span>CAPITAL FIT</span><span>MEDIA FIT</span></div>
+      <div class="gauge-label"><span>VC17</span></div>
       <div class="gauge-track">
         <div class="gauge-fill-capital" id="gaugeCapital"></div>
         <div class="gauge-fill-media" id="gaugeMedia"></div>
@@ -380,6 +406,14 @@
           </div>
         </div>
 
+        <!-- Выбрали Other — просим уточнить, без этого дальше не пускаем
+             (правка Леры 14.08). Скрытые поля validateStep пропускает,
+             поэтому обязательность включается вместе с показом. -->
+        <div class="field" id="marketOtherWrap" style="display:none">
+          <label>Which other markets</label>
+          <input type="text" id="market_other" placeholder="e.g. MENA, India, Australia" required>
+        </div>
+
         <div id="declineSlot"></div>
       </div>
 
@@ -439,6 +473,11 @@
             <div class="pill" data-value="Gambling / Betting">Gambling / Betting</div>
             <div class="pill" data-value="Other">Other</div>
           </div>
+        </div>
+
+        <div class="field" id="verticalsOtherWrap" style="display:none">
+          <label>Which other vertical</label>
+          <input type="text" id="verticals_other" placeholder="Tell us in a few words" required>
         </div>
 
         <div class="field">
@@ -573,13 +612,20 @@ async function apiFetch(query, options){
 
 /* Пороги и вертикали по умолчанию. Если настроен SUBMIT_URL, реальные значения
    подтягиваются из листа «Settings» Google Таблицы (см. loadConfig ниже) —
-   их можно менять без программиста. */
-let MRR_THRESHOLD_B2C = 10000;
-let MRR_THRESHOLD_DEFAULT = 30000;
+   их можно менять без программиста.
+
+   Два порога на сегмент (финальная логика Леры от 14.08):
+     soft — ниже него анкета открывается, но с предупреждением (пул cohort);
+     hard — ниже него шаг 2 не открывается вовсе, данные никуда не уходят. */
+let MRR_SOFT_B2C = 10000;
+let MRR_HARD_B2C = 5000;
+let MRR_SOFT_OTHER = 30000;
+let MRR_HARD_OTHER = 15000;
 
 let currentStep = 0;
 const totalSteps = 4;
-let hardFail = false;
+let softFail = false;   /* hard <= MRR < soft: предупреждение, проход разрешён */
+let hardFail = false;   /* MRR < hard: финальный отказ, отправки нет */
 
 const data = {};
 
@@ -613,6 +659,7 @@ function bindPillGroup(group){
         if(idx === -1){ arr.push(val); } else { arr.splice(idx,1); }
         data[name] = arr;
         if(name === 'interested_in') updateRaiseVisibility();
+        updateOtherInputs();
       } else {
         group.querySelectorAll('.pill').forEach(function(p){ p.classList.remove('selected'); });
         pill.classList.add('selected');
@@ -625,7 +672,7 @@ function bindPillGroup(group){
 }
 document.querySelectorAll('.pillgroup').forEach(bindPillGroup);
 
-/* Пороги, правило Pre-Seed и список вертикалей — из листа «Settings» таблицы. */
+/* Пороги (soft/hard) и список вертикалей — из листа «Settings» таблицы. */
 async function loadConfig(){
   if(!SUBMIT_URL) return;
   try{
@@ -633,8 +680,10 @@ async function loadConfig(){
     const cfg = await resp.json();
     if(!cfg || !cfg.ok) return;
     if(cfg.thresholds){
-      MRR_THRESHOLD_B2C = cfg.thresholds.b2c || MRR_THRESHOLD_B2C;
-      MRR_THRESHOLD_DEFAULT = cfg.thresholds.other || MRR_THRESHOLD_DEFAULT;
+      MRR_SOFT_B2C = cfg.thresholds.b2c || MRR_SOFT_B2C;
+      MRR_SOFT_OTHER = cfg.thresholds.other || MRR_SOFT_OTHER;
+      MRR_HARD_B2C = cfg.thresholds.hard_b2c || MRR_HARD_B2C;
+      MRR_HARD_OTHER = cfg.thresholds.hard_other || MRR_HARD_OTHER;
     }
     if(Array.isArray(cfg.verticals) && cfg.verticals.length){
       const group = document.querySelector('.pillgroup[data-name="verticals"]');
@@ -643,12 +692,32 @@ async function loadConfig(){
       }).join('');
       data.verticals = [];
       bindPillGroup(group);
+      updateOtherInputs();
     }
     evaluateGate();
     updateGauge();
   }catch(e){ /* остаёмся на значениях по умолчанию */ }
 }
 loadConfig();
+
+/* Other в мультивыборах (рынки, вертикали) → показываем поле для своего текста. */
+function updateOtherInputs(){
+  const has = function(name){
+    return (data[name] || []).some(function(v){ return String(v).toLowerCase() === 'other'; });
+  };
+  [['market','marketOtherWrap','market_other'],['verticals','verticalsOtherWrap','verticals_other']]
+    .forEach(function(cfg){
+      const wrap = document.getElementById(cfg[1]);
+      if(!wrap) return;
+      const show = has(cfg[0]);
+      wrap.style.display = show ? 'block' : 'none';
+      if(!show){
+        const input = document.getElementById(cfg[2]);
+        if(input){ input.value = ''; input.classList.remove('field-invalid'); }
+        delete data[cfg[2]];
+      }
+    });
+}
 
 /* Amount raising / Post-money — только для Equity или Marketing for equity. */
 function updateRaiseVisibility(){
@@ -769,46 +838,59 @@ function validateStep(i){
   return { valid: valid, firstInvalid: firstInvalid };
 }
 
-function mrrThreshold(){
+/* Порог зависит от сегмента (вопрос 1). Если выбрано несколько сегментов,
+   берём более строгий: B2B/B2B2C — $30k/$15k, чистый B2C — $10k/$5k. */
+function isB2cOnly(){
   const seg = data.segment || [];
-  if(seg.length === 1 && seg[0] === 'b2c') return MRR_THRESHOLD_B2C;
-  if(seg.length === 0) return MRR_THRESHOLD_B2C;
-  return MRR_THRESHOLD_DEFAULT;
+  return seg.length > 0 && seg.every(function(s){ return s === 'b2c'; });
 }
+function mrrSoft(){ return isB2cOnly() ? MRR_SOFT_B2C : MRR_SOFT_OTHER; }
+function mrrHard(){ return isB2cOnly() ? MRR_HARD_B2C : MRR_HARD_OTHER; }
 
 function evaluateGate(){
   const slot = document.getElementById('declineSlot');
   const mrr = moneyValue('mrr');
   const seg = data.segment || [];
 
+  softFail = false;
   hardFail = false;
 
-  /* Единственный жёсткий порог по ТЗ: MRR ниже $10k (только B2C) / $30k (остальные). */
   if(seg.length && mrr){
-    const threshold = mrrThreshold();
-    if(mrr < threshold) hardFail = true;
+    if(mrr < mrrHard()) hardFail = true;
+    else if(mrr < mrrSoft()) softFail = true;
   }
 
   if(hardFail){
-    slot.innerHTML = '<div class="decline-box"><b>Thank you for your interest in V17.</b> Right now we invest in companies with MRR from $' + mrrThreshold().toLocaleString('en-US') + ' for the selected segment, so this application would not pass our current thresholds. We would genuinely love to hear from you once you cross that mark. You can still submit the application — it will go into a separate pool for cohort financing and reconsideration, though we cannot guarantee a response.</div>';
+    /* Ниже hard-порога: финальный отказ, шаг 2 не открывается,
+       данные никуда не сохраняются (кнопки Next нет). */
+    slot.innerHTML = '<div class="decline-box"><b>Thank you for your interest in V17.</b> This is below our current investment stage. Please reach out again once you\'ve grown further — we\'d be glad to take another look.</div>';
+  } else if(softFail){
+    /* Между hard и soft: предупреждаем, но пропускаем дальше — заявка
+       попадёт в отдельный пул (cohort financing / пересмотр). */
+    const label = isB2cOnly() ? 'B2C' : 'B2B';
+    slot.innerHTML = '<div class="decline-box">This may not match our current focus — MRR below threshold ($' +
+      mrrSoft().toLocaleString('en-US') + ' for ' + label + '). You can still submit it — it will go into a separate pool for cohort financing and reconsideration, though we cannot guarantee a response.</div>';
   } else {
     slot.innerHTML = '';
   }
   updateNextLabel();
 }
 
-/* При непрохождении порога кнопка на шаге 1 меняется на «Submit anyway» —
-   анкета дальше открывается только осознанным кликом (soft-отказ по ТЗ). */
+/* На шаге 1 при hard-отказе кнопку Next убираем совсем (просьба Леры),
+   в soft-зоне она остаётся обычным «Next» — анкета открывается как всегда. */
 function updateNextLabel(){
   const btn = document.getElementById('btnNext');
   if(currentStep === 0){
-    btn.textContent = hardFail ? 'Submit anyway' : 'Next';
+    btn.textContent = 'Next';
+    btn.style.display = hardFail ? 'none' : '';
+  } else {
+    btn.style.display = '';
   }
 }
 
 function updateGauge(){
   const mrr = moneyValue('mrr');
-  const threshold = mrrThreshold();
+  const threshold = mrrSoft();
   const cac = parseFloat(data.cac) || 0;
   const ltv = parseFloat(data.ltv) || 0;
   const ltvcac = cac > 0 ? ltv / cac : 0;
@@ -829,7 +911,7 @@ function updateGauge(){
   const verdictEl = document.getElementById('gaugeVerdict');
   if(mrr === 0 && ltvcac === 0 && ret30 === 0){
     verdictEl.textContent = 'Fill in the form — the score updates as you go.';
-  } else if(hardFail){
+  } else if(hardFail || softFail){
     verdictEl.textContent = 'Does not meet current fund thresholds — see the note above.';
   } else if(capitalScore >= 70 && mediaScore >= 50){
     verdictEl.textContent = 'Strong match — this application goes into the priority pool.';
@@ -858,6 +940,7 @@ function showStep(i){
 }
 
 document.getElementById('btnNext').addEventListener('click', async function(){
+  if(currentStep === 0 && hardFail) return;   /* ниже hard-порога дальше не пускаем */
   const check = validateStep(currentStep);
   if(!check.valid){
     if(check.firstInvalid) check.firstInvalid.scrollIntoView({behavior:'smooth', block:'center'});
@@ -890,7 +973,9 @@ async function submitForm(){
     amount_raising: moneyValue('amount_raising'),
     post_money: moneyValue('post_money'),
     marketing_spend: moneyValue('marketing_spend'),
-    hard_filter_failed: hardFail,
+    /* Заявка из soft-зоны: MRR ниже порога, но выше hard — помечаем,
+       чтобы в таблице/Notion/TG было видно, что это отдельный пул. */
+    below_soft_threshold: softFail,
     submitted_at: new Date().toISOString(),
     source: 'site_form'
   });

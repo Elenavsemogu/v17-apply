@@ -4,9 +4,11 @@
  * Что делает:
  *  1. Принимает POST от формы (index.html) → пишет строку в Google Таблицу (журнал/резерв)
  *     и создаёт страницу в базе Notion (заказчик работает в Notion).
- *  2. Шлёт уведомление в Telegram-чат с кнопками «Отказать (шаблон 1/2/3)».
- *  3. По нажатию кнопки отправляет письмо-отказ заявителю с выбранным шаблоном
- *     и помечает сообщение в чате.
+ *  2. Шлёт уведомление в Telegram-чат с кнопками «Отказ (стандарт)»,
+ *     «Отказ (потенциал)», «Отказ (с правкой)» и «Взяли в работу».
+ *  3. По нажатию кнопки отправляет письмо-отказ заявителю и помечает сообщение
+ *     в чате. «С правкой» — сначала присылает черновик: его можно отправить
+ *     как есть или ответить на сообщение своим текстом.
  *
  * Установка — см. README-НАСТРОЙКА.md. Кратко:
  *  - создать Google Таблицу → Расширения → Apps Script → вставить этот код
@@ -49,39 +51,38 @@ var CONFIG = {
    письма-отказы читают тексты в момент отправки. Ничего передеплоивать не надо.
    ========================================================================== */
 var DEFAULT_SETTINGS = [
-  ['MRR_THRESHOLD_B2C', 10000, 'Порог MRR, если выбран ТОЛЬКО B2C'],
-  ['MRR_THRESHOLD_OTHER', 30000, 'Порог MRR для остальных/смешанных сегментов (B2B, B2B2C)'],
+  ['MRR_THRESHOLD_B2C', 10000, 'Мягкий порог MRR для B2C: ниже — предупреждение, анкета открывается'],
+  ['MRR_THRESHOLD_OTHER', 30000, 'Мягкий порог MRR для B2B и B2B2C'],
+  ['MRR_HARD_B2C', 5000, 'Жёсткий порог MRR для B2C: ниже — финальный отказ, заявка не сохраняется'],
+  ['MRR_HARD_OTHER', 15000, 'Жёсткий порог MRR для B2B и B2B2C'],
   ['VERTICALS', 'HealthTech, Wellbeing, Productivity Tools, Future of Work, FinTech, EdTech, Entertainment, Lifestyle, MarTech, DIY-Marketing Tools, AI Operators, AI Assistants for Business, Gaming, Gambling / Betting, Other', 'Список вертикалей через запятую — порядок сохраняется на форме']
 ];
 
-/* Стартовые шаблоны отказов — копируются в лист «Decline templates» при первом
-   запуске, дальше источник истины — таблица. {{name}} и {{company}} подставляются. */
+/* Шаблоны отказов — тексты Леры от 14.08. Копируются в лист «Decline templates»
+   при первом запуске, дальше источник истины — таблица; {{name}} и {{company}}
+   подставляются, если их куда-то впишут. Тема одна на все письма.
+   В Telegram к этим двум шаблонам добавляется третья кнопка «Отказ (с правкой)»:
+   тот же стандартный текст, но сначала приходит черновик в чат. */
+var TEMPLATES_VERSION = 'lera-2026-08-14';
+var DECLINE_MAIL_SUBJECT = 'Thank you for your interest in V17';
 var DECLINE_TEMPLATES = [
   {
-    label: 'Not a fit now',
-    subject: 'V17 — your application',
-    body: 'Hi {{name}},\n\n' +
-      'Thank you for applying to V17 and for the time you put into the application for {{company}}.\n\n' +
-      'We have reviewed it carefully, and at this point it does not match our current investment focus, so we will pass for now. This is a reflection of our thesis and portfolio construction today — not a judgment on your product or team.\n\n' +
-      'Things change quickly at our end as well: feel free to reapply once your metrics or stage move forward.\n\n' +
-      'Wishing you a great run,\nV17 Team'
+    label: 'Отказ (стандарт)',
+    subject: DECLINE_MAIL_SUBJECT,
+    body: 'Dear Team,\n\n' +
+      'Thank you for taking the time to share your company with V17 and for your interest in working together.\n\n' +
+      'After reviewing your submission, we\'ve decided not to move forward at this time. This isn\'t a reflection of your team or what you\'re building — it simply isn\'t the right fit for our current investment focus.\n\n' +
+      'We wish you continued success, and we\'d welcome the opportunity to reconnect in the future as your company grows.\n\n' +
+      'Best regards,\nThe V17 Team'
   },
   {
-    label: 'Below thresholds',
-    subject: 'V17 — your application',
-    body: 'Hi {{name}},\n\n' +
-      'Thanks for your application to V17 with {{company}}.\n\n' +
-      'Right now the company is earlier than the profile we invest in (we focus on Seed to Series A+ teams with MRR from $10k for B2C and from $30k for B2B). We will keep your application in our pipeline, and we would genuinely love to hear from you again once you cross those marks.\n\n' +
-      'Best of luck — keep building,\nV17 Team'
-  },
-  {
-    label: 'Outside thesis',
-    subject: 'V17 — your application',
-    body: 'Hi {{name}},\n\n' +
-      'Thank you for telling us about {{company}}.\n\n' +
-      'We invest in a fairly narrow set of verticals (B2C consumer products and B2B marketing/AI tools), and your product falls outside that focus, so we will step aside here. It is purely a matter of thesis fit.\n\n' +
-      'We appreciate your interest in V17 and wish you every success with the raise.\n\n' +
-      'V17 Team'
+    label: 'Отказ (потенциал)',
+    subject: DECLINE_MAIL_SUBJECT,
+    body: 'Dear Team,\n\n' +
+      'Thank you for sharing your company with V17 — we genuinely enjoyed learning more about what you\'re building.\n\n' +
+      'While it\'s not the right time for us to move forward, this was not an easy no — your traction and direction stood out to us. We\'d love to stay in touch and take another look as you continue to grow.\n\n' +
+      'Feel free to reach back out once you hit your next milestone — we\'ll be glad to reconnect.\n\n' +
+      'Best regards,\nThe V17 Team'
   }
 ];
 
@@ -113,7 +114,9 @@ function doGet(e) {
       ok: true,
       thresholds: {
         b2c: Number(s.MRR_THRESHOLD_B2C) || 10000,
-        other: Number(s.MRR_THRESHOLD_OTHER) || 30000
+        other: Number(s.MRR_THRESHOLD_OTHER) || 30000,
+        hard_b2c: Number(s.MRR_HARD_B2C) || 5000,
+        hard_other: Number(s.MRR_HARD_OTHER) || 15000
       },
       verticals: String(s.VERTICALS || '').split(',').map(function (v) { return v.trim(); }).filter(Boolean)
     });
@@ -141,22 +144,32 @@ function getSettings() {
   return out;
 }
 
+function writeDefaultTemplates(sheet) {
+  sheet.clearContents();
+  sheet.getRange(1, 1, 1, 3).setValues([['Label (кнопка в TG)', 'Subject', 'Body ({{name}}, {{company}})']]);
+  var seed = DECLINE_TEMPLATES.map(function (t) { return [t.label, t.subject, t.body]; });
+  sheet.getRange(2, 1, seed.length, 3).setValues(seed);
+  sheet.setFrozenRows(1);
+  sheet.setColumnWidth(3, 600);
+  PropertiesService.getScriptProperties().setProperty('templates_version', TEMPLATES_VERSION);
+}
+
 function getDeclineTemplates() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(CONFIG.TEMPLATES_SHEET);
   if (!sheet) {
     sheet = ss.insertSheet(CONFIG.TEMPLATES_SHEET);
-    sheet.getRange(1, 1, 1, 3).setValues([['Label (кнопка в TG)', 'Subject', 'Body ({{name}}, {{company}})']]);
-    var seed = DECLINE_TEMPLATES.map(function (t) { return [t.label, t.subject, t.body]; });
-    sheet.getRange(2, 1, seed.length, 3).setValues(seed);
-    sheet.setFrozenRows(1);
-    sheet.setColumnWidth(3, 600);
+    writeDefaultTemplates(sheet);
+  } else if (PropertiesService.getScriptProperties().getProperty('templates_version') !== TEMPLATES_VERSION) {
+    /* Один раз заменяем прежние шаблоны на тексты Леры от 14.08 — дальше
+       правки в листе сохраняются (версия уже записана в свойствах скрипта). */
+    writeDefaultTemplates(sheet);
   }
   var rows = sheet.getDataRange().getValues();
   var out = [];
   for (var i = 1; i < rows.length; i++) {
     if (rows[i][0] && rows[i][2]) {
-      out.push({ label: String(rows[i][0]), subject: String(rows[i][1] || 'V17 — your application'), body: String(rows[i][2]) });
+      out.push({ label: String(rows[i][0]), subject: String(rows[i][1] || DECLINE_MAIL_SUBJECT), body: String(rows[i][2]) });
     }
   }
   return out.length ? out : DECLINE_TEMPLATES;
@@ -164,13 +177,17 @@ function getDeclineTemplates() {
 
 /* ============================ заявка с формы ============================ */
 
+/* Порядок колонок менять нельзя (по нему пишутся строки и ищется заявка);
+   новые колонки — только в конец. 'Below threshold' — прежний
+   'Hard filter failed': теперь тут отмечаются заявки soft-зоны
+   (MRR ниже мягкого порога, но выше жёсткого). */
 var SHEET_HEADERS = [
-  'Submitted at', 'Hard filter failed', 'Company', 'Website', 'Segment', 'Stage',
+  'Submitted at', 'Below threshold', 'Company', 'Website', 'Segment', 'Stage',
   'Top user markets', 'MRR $', 'Interested in', 'Amount raising $', 'Post-money $',
   'Verticals', 'Problem', 'Pitch deck', 'ICP', 'Team',
   'Ret D30 %', 'Ret D60 %', 'Ret D90 %', 'CAC $', 'LTV $', 'Avg session min',
   'Payback', 'Monetization', 'Organic %', 'MRR growth', 'Marketing spend $/mo',
-  'Contact name', 'Contact email', 'Notes', 'Status', 'Notion URL'
+  'Contact name', 'Contact email', 'Notes', 'Status', 'Notion URL', 'Source'
 ];
 
 function getSheet() {
@@ -178,10 +195,24 @@ function getSheet() {
   var sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(CONFIG.SHEET_NAME);
-    sheet.getRange(1, 1, 1, SHEET_HEADERS.length).setValues([SHEET_HEADERS]);
     sheet.setFrozenRows(1);
   }
+  /* Шапку переписываем всегда: порядок колонок в коде фиксирован, а названия
+     со временем менялись (добавился Source, 'Hard filter failed' стал
+     'Below threshold'). Данные при этом не двигаются. */
+  var head = sheet.getRange(1, 1, 1, SHEET_HEADERS.length);
+  if (String(head.getValues()[0]) !== String(SHEET_HEADERS)) head.setValues([SHEET_HEADERS]);
   return sheet;
+}
+
+/* Пометка «заявка пришла из формы на сайте» — просьба Леры от 14.08.
+   Видна в таблице (колонка Source), в карточке Notion и в сообщении Telegram. */
+var SOURCE_LABEL = 'Website form (v17.vc/apply)';
+
+/* «Other» в мультивыборе: к выбранным значениям добавляем уточнение. */
+function withOther(list, other) {
+  var extra = String(other || '').trim();
+  return extra ? (list ? list + ' (other: ' + extra + ')' : 'Other: ' + extra) : list;
 }
 
 function handleFormSubmission(d) {
@@ -205,40 +236,30 @@ function handleFormSubmission(d) {
   }
   d.pitch_deck = deck;
 
+  /* Уточнения по «Other» пишем в ту же клетку, что и сам выбор. */
+  d.market_text = withOther(joined(d.market), d.market_other);
+  d.verticals_text = withOther(joined(d.verticals), d.verticals_other);
+  /* Совместимость: старое поле формы называлось hard_filter_failed, теперь
+     из формы приходит below_soft_threshold (жёсткий отказ до отправки
+     вообще не доходит — заявка не сохраняется). */
+  d.below_threshold = !!(d.below_soft_threshold || d.hard_filter_failed);
+
   var sheet = getSheet();
   var statusCol = SHEET_HEADERS.indexOf('Status') + 1;
   var row = [
     d.submitted_at || new Date().toISOString(),
-    d.hard_filter_failed ? 'YES' : '',
+    d.below_threshold ? 'YES' : '',
     d.company_name || '', d.website || '',
-    joined(d.segment).toUpperCase(), d.stage || '', joined(d.market),
+    joined(d.segment).toUpperCase(), d.stage || '', d.market_text,
     d.mrr || '', joined(d.interested_in), d.amount_raising || '', d.post_money || '',
-    joined(d.verticals), safe(d.problem || ''), d.pitch_deck || '', safe(d.icp || ''), safe(d.team || ''),
+    d.verticals_text, safe(d.problem || ''), d.pitch_deck || '', safe(d.icp || ''), safe(d.team || ''),
     d.ret30 || '', d.ret60 || '', d.ret90 || '', d.cac || '', d.ltv || '', d.session || '',
     safe(d.payback || ''), safe(d.sub_model || ''), d.organic_pct || '', safe(d.mrr_growth || ''), d.marketing_spend || '',
     safe(d.contact_name || ''), d.contact_email || '', safe(d.notes || ''),
-    'new', ''
+    'new', '', SOURCE_LABEL
   ];
   sheet.appendRow(row);
   var rowNum = sheet.getLastRow();
-
-  /* Заявкам «ниже порога» (нажали Submit anyway) письмо-отказ уходит СРАЗУ
-     автоматически (решение Леры, п.3 от 13.08) — шаблон «Below thresholds».
-     Если отправка не удалась, статус остаётся new и отказ можно послать
-     кнопкой из Telegram как обычно. */
-  if (d.hard_filter_failed && d.contact_email) {
-    try {
-      var tpls = getDeclineTemplates();
-      var tpl = tpls.filter(function (t) { return /threshold/i.test(t.label); })[0] || tpls[1] || tpls[0];
-      var fill = function (s) {
-        return s.replace(/{{name}}/g, d.contact_name || 'there')
-                .replace(/{{company}}/g, d.company_name || 'your company');
-      };
-      sendDeclineMail(d.contact_email, fill(tpl.subject), fill(tpl.body));
-      sheet.getRange(rowNum, statusCol).setValue('declined (auto: ' + tpl.label + ')');
-      d.auto_declined = true;
-    } catch (err) { /* остаётся ручной отказ из TG */ }
-  }
 
   var notionUrl = '';
   try {
@@ -326,7 +347,7 @@ function createNotionPage(d) {
   var financing = (d.interested_in || []).map(function (v) { return { name: finMap[v] || v }; });
 
   var properties = {
-    'Name':            { title: rt((d.hard_filter_failed ? '⚠️ ' : '') + (d.company_name || '(no name)')) },
+    'Name':            { title: rt((d.below_threshold ? '⚠️ ' : '') + (d.company_name || '(no name)')) },
     'Email':           { email: d.contact_email || null },
     'Revenue ':        { number: num(d.mrr) },
     'Estimated Value': { number: num(d.amount_raising) },
@@ -337,11 +358,15 @@ function createNotionPage(d) {
   if (financing.length) properties['Financing'] = { multi_select: financing };
 
   var children = [];
-  if (d.hard_filter_failed) {
+  /* Первая строка карточки — откуда заявка (просьба Леры от 14.08). */
+  children.push({ callout: {
+    icon: { emoji: '🌐' },
+    rich_text: rt('Submitted through the application form on the site — ' + SOURCE_LABEL)
+  }});
+  if (d.below_threshold) {
     children.push({ callout: {
       icon: { emoji: '⚠️' },
-      rich_text: rt('Did NOT pass the quick filter (MRR below threshold). Separate pool / cohort financing.' +
-        (d.auto_declined ? ' Auto-decline email has been sent.' : ''))
+      rich_text: rt('MRR below our soft threshold — separate pool for cohort financing / reconsideration. No automatic reply was sent.')
     }});
   }
   var line = function (label, value) {
@@ -351,10 +376,11 @@ function createNotionPage(d) {
       { text: { content: String(value).slice(0, 1800) } }
     ]}});
   };
-  var joined = function (v) { return Array.isArray(v) ? v.join(', ') : (v || ''); };
+  line('Source', SOURCE_LABEL);
   line('Website', d.website);
   line('Stage', d.stage);
-  line('Top user markets', joined(d.market));
+  line('Top user markets', d.market_text || (Array.isArray(d.market) ? d.market.join(', ') : d.market));
+  line('Other vertical', d.verticals_other);
   line('Post-money, $', d.post_money);
   line('Pitch deck', d.pitch_deck);
   line('Contact', (d.contact_name || '') + ' · ' + (d.contact_email || ''));
@@ -436,14 +462,14 @@ function notifyTelegram(d, rowNum, notionUrl) {
   var money = function (v) { return v ? '$' + Number(v).toLocaleString('en-US') : '—'; };
 
   var lines = [
-    (d.hard_filter_failed ? '⚠️ <b>Новая заявка (НЕ прошла фильтр)</b>' : '✅ <b>Новая заявка</b>'),
-    (d.auto_declined ? '✉️ Письмо-отказ уже отправлено автоматически' : ''),
+    (d.below_threshold ? '⚠️ <b>Новая заявка (MRR ниже порога — пул cohort)</b>' : '✅ <b>Новая заявка</b>'),
+    '🌐 Источник: форма на сайте (v17.vc/apply)',
     '',
     '<b>' + esc(d.company_name || '(без названия)') + '</b> — ' + esc(d.website || ''),
-    esc(joined(d.segment).toUpperCase()) + ' · ' + esc(d.stage || '—') + ' · рынки: ' + esc(joined(d.market) || '—'),
+    esc(joined(d.segment).toUpperCase()) + ' · ' + esc(d.stage || '—') + ' · рынки: ' + esc(d.market_text || joined(d.market) || '—'),
     'MRR: ' + money(d.mrr) + ' · Raising: ' + money(d.amount_raising) + ' · Post-money: ' + money(d.post_money),
     'Интерес: ' + esc(joined(d.interested_in)),
-    'Вертикали: ' + esc(joined(d.verticals)),
+    'Вертикали: ' + esc(d.verticals_text || joined(d.verticals)),
     'Retention 30/60/90: ' + esc((d.ret30 || '—') + '/' + (d.ret60 || '—') + '/' + (d.ret90 || '—') + '%') +
       ' · CAC ' + money(d.cac) + ' · LTV ' + money(d.ltv),
     'Organic: ' + esc(d.organic_pct || '—') + '% · Spend: ' + money(d.marketing_spend) + '/мес',
@@ -457,12 +483,7 @@ function notifyTelegram(d, rowNum, notionUrl) {
      в таблице удалят/отсортируют и номер «съедет», строка будет найдена
      заново по отпечатку — письмо не уйдёт не тому человеку. */
   var key = rowKey(d.contact_email, d.company_name);
-  var keyboard = { inline_keyboard: [
-    getDeclineTemplates().map(function (t, i) {
-      return { text: '✉️ Отказ: ' + t.label, callback_data: 'd:' + rowNum + ':' + i + ':' + key };
-    }),
-    [{ text: '✔️ Взяли в работу', callback_data: 'p:' + rowNum + ':' + key }]
-  ]};
+  var keyboard = { inline_keyboard: declineKeyboard(rowNum, key) };
 
   tg('sendMessage', {
     chat_id: tgChatId(),
@@ -473,21 +494,38 @@ function notifyTelegram(d, rowNum, notionUrl) {
   });
 }
 
-/* Опрос Telegram по таймеру (каждую минуту). Забирает нажатия кнопок
-   через getUpdates и обрабатывает их. Оффсет хранится в Script Properties,
-   поэтому каждое нажатие обрабатывается ровно один раз. */
+/* Кнопки под заявкой (набор Леры от 14.08):
+   письма-отказы из листа «Decline templates» — «стандарт» и «потенциал»
+   уходят сразу; «с правкой» — бот сначала присылает черновик в чат, его можно
+   отправить как есть или ответить своим текстом. */
+function declineKeyboard(rowNum, key) {
+  var suffix = ':' + rowNum + ':' + key;
+  var templates = getDeclineTemplates().map(function (t, i) {
+    return { text: '✉️ ' + t.label, callback_data: 'd:' + rowNum + ':' + i + ':' + key };
+  });
+  return [
+    templates,
+    [{ text: '✏️ Отказ (с правкой)', callback_data: 'e' + suffix }],
+    [{ text: '✔️ Взяли в работу', callback_data: 'p' + suffix }]
+  ];
+}
+
+/* Опрос Telegram по таймеру (каждую минуту). Забирает нажатия кнопок и ответы
+   на черновики через getUpdates. Оффсет хранится в Script Properties,
+   поэтому каждое событие обрабатывается ровно один раз. */
 function pollTelegram() {
   if (!CONFIG.TELEGRAM_TOKEN) return;
   var props = PropertiesService.getScriptProperties();
   var offset = Number(props.getProperty('tg_offset') || 0);
-  var resp = tg('getUpdates', { offset: offset + 1, allowed_updates: ['callback_query'] });
+  var resp = tg('getUpdates', { offset: offset + 1, allowed_updates: ['callback_query', 'message'] });
   var out = JSON.parse(resp.getContentText());
   if (!out.ok) return;
   out.result.forEach(function (u) {
     if (u.update_id > offset) offset = u.update_id;
-    if (u.callback_query) {
-      try { handleCallback(u.callback_query); } catch (e) { /* не роняем остальные */ }
-    }
+    try {
+      if (u.callback_query) handleCallback(u.callback_query);
+      else if (u.message) handleDraftReply(u.message);
+    } catch (e) { /* не роняем остальные */ }
   });
   props.setProperty('tg_offset', String(offset));
 }
@@ -522,67 +560,156 @@ function findRow(sheet, rowNum, key) {
   return 0;
 }
 
+/* Заявитель из строки таблицы. */
+function applicantAt(sheet, rowNum) {
+  var row = sheet.getRange(rowNum, 1, 1, SHEET_HEADERS.length).getValues()[0];
+  return {
+    email: row[SHEET_HEADERS.indexOf('Contact email')],
+    name: row[SHEET_HEADERS.indexOf('Contact name')] || 'there',
+    company: row[SHEET_HEADERS.indexOf('Company')] || 'your company'
+  };
+}
+
+function fillTemplate(s, who) {
+  return String(s).replace(/{{name}}/g, who.name).replace(/{{company}}/g, who.company);
+}
+
 function handleCallback(cb) {
   var parts = (cb.data || '').split(':');
   var kind = parts[0];
   var sheet = getSheet();
   var statusCol = SHEET_HEADERS.indexOf('Status') + 1;
-  var rowNum, key;
 
-  if (kind === 'p') {
-    rowNum = parseInt(parts[1], 10);
-    key = parts[2];
-    if (key) rowNum = findRow(sheet, rowNum, key);
-    if (!rowNum) {
-      tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Строка заявки не найдена (удалена?)', show_alert: true });
-      return;
-    }
-    sheet.getRange(rowNum, statusCol).setValue('in progress');
-    tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Помечено: в работе' });
-    appendToMessage(cb, '\n\n✔️ <b>Взято в работу</b> (' + esc(cb.from.first_name || '') + ')');
+  if (kind === 'dx') {
+    tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Отменено' });
+    appendToMessage(cb, '\n\n✖️ <b>Отменено</b> (' + esc(cb.from.first_name || '') + ')');
     return;
   }
 
-  if (kind === 'd') {
-    rowNum = parseInt(parts[1], 10);
-    var tplIdx = parseInt(parts[2], 10);
-    key = parts[3];
-    var tpl = getDeclineTemplates()[tplIdx];
-    if (key) rowNum = findRow(sheet, rowNum, key);
-    if (!rowNum) {
-      tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Строка заявки не найдена (удалена?)', show_alert: true });
-      return;
-    }
-    var row = sheet.getRange(rowNum, 1, 1, SHEET_HEADERS.length).getValues()[0];
-    var email = row[SHEET_HEADERS.indexOf('Contact email')];
-    var name = row[SHEET_HEADERS.indexOf('Contact name')] || 'there';
-    var company = row[SHEET_HEADERS.indexOf('Company')] || 'your company';
+  var isTemplate = (kind === 'd');
+  var rowNum = parseInt(parts[1], 10);
+  var tplIdx = isTemplate ? parseInt(parts[2], 10) : 0;
+  var key = isTemplate ? parts[3] : parts[2];
+  if (key) rowNum = findRow(sheet, rowNum, key);
+  if (!rowNum) {
+    tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Строка заявки не найдена (удалена?)', show_alert: true });
+    return;
+  }
 
-    if (!email || !tpl) {
+  if (kind === 'p') {
+    sheet.getRange(rowNum, statusCol).setValue('in progress');
+    tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Помечено: в работе' });
+    /* Кнопки отказа оставляем — отказать можно и после «взяли в работу». */
+    appendToMessage(cb, '\n\n✔️ <b>Взято в работу</b> (' + esc(cb.from.first_name || '') + ')',
+      { inline_keyboard: declineKeyboard(rowNum, key) });
+    return;
+  }
+
+  var who = applicantAt(sheet, rowNum);
+  var templates = getDeclineTemplates();
+
+  /* «Отказ (с правкой)»: черновик стандартного письма приходит в чат,
+     дальше его либо отправляют как есть, либо отвечают своим текстом. */
+  if (kind === 'e') {
+    var draftTpl = templates[0];
+    if (!who.email || !draftTpl) {
       tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Нет email или шаблона', show_alert: true });
       return;
     }
+    var resp = tg('sendMessage', {
+      chat_id: cb.message.chat.id,
+      text: '✏️ <b>Черновик отказа</b> — ' + esc(who.company) + ' (' + esc(who.email) + ')\n' +
+        '<i>Тема:</i> ' + esc(draftTpl.subject) + '\n\n' +
+        esc(fillTemplate(draftTpl.body, who)) + '\n\n' +
+        '👉 Ответьте на это сообщение своим текстом — отправлю его вместо черновика. Или «Отправить как есть».',
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+      reply_markup: { inline_keyboard: [[
+        { text: '✅ Отправить как есть', callback_data: 'ds:' + rowNum + ':' + key },
+        { text: '✖️ Отмена', callback_data: 'dx' }
+      ]]}
+    });
+    /* Запоминаем id черновика: по нему поймём, что ответ в чате — правка письма. */
+    try {
+      var sent = JSON.parse(resp.getContentText());
+      if (sent.ok) {
+        PropertiesService.getScriptProperties()
+          .setProperty('draft_' + sent.result.message_id, rowNum + '|' + key);
+      }
+    } catch (e) { /* черновик всё равно виден в чате */ }
+    tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Черновик в чате — можно поправить' });
+    return;
+  }
 
-    var fill = function (s) {
-      return s.replace(/{{name}}/g, name).replace(/{{company}}/g, company);
-    };
-    sendDeclineMail(email, fill(tpl.subject), fill(tpl.body));
-
+  if (kind === 'd' || kind === 'ds') {
+    var tpl = templates[tplIdx];
+    if (!who.email || !tpl) {
+      tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Нет email или шаблона', show_alert: true });
+      return;
+    }
+    sendDeclineMail(who.email, fillTemplate(tpl.subject, who), fillTemplate(tpl.body, who));
     sheet.getRange(rowNum, statusCol).setValue('declined (' + tpl.label + ')');
-    tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Отказ отправлен на ' + email });
+    tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Отказ отправлен на ' + who.email });
+    if (kind === 'ds') {
+      PropertiesService.getScriptProperties().deleteProperty('draft_' + cb.message.message_id);
+    }
     appendToMessage(cb, '\n\n❌ <b>Отказ отправлен</b> («' + esc(tpl.label) + '», ' + esc(cb.from.first_name || '') + ')');
   }
 }
 
-function appendToMessage(cb, suffix) {
+/* Ответ на черновик = «отправь письмо этим текстом». Реагируем только на реплаи
+   к сообщениям-черновикам (их id лежат в свойствах скрипта), остальную
+   переписку в чате игнорируем. */
+function handleDraftReply(msg) {
+  if (!msg.reply_to_message || !msg.text) return;
+  var props = PropertiesService.getScriptProperties();
+  var propKey = 'draft_' + msg.reply_to_message.message_id;
+  var stored = props.getProperty(propKey);
+  if (!stored) return;
+
+  var sheet = getSheet();
+  var saved = stored.split('|');
+  var rowNum = findRow(sheet, parseInt(saved[0], 10), saved[1]);
+  if (!rowNum) {
+    tg('sendMessage', {
+      chat_id: msg.chat.id,
+      reply_to_message_id: msg.message_id,
+      text: 'Строка заявки не найдена — письмо не отправлено.'
+    });
+    return;
+  }
+
+  var who = applicantAt(sheet, rowNum);
+  var templates = getDeclineTemplates();
+  var subject = (templates[0] && templates[0].subject) || DECLINE_MAIL_SUBJECT;
+  sendDeclineMail(who.email, subject, msg.text);
+  sheet.getRange(rowNum, SHEET_HEADERS.indexOf('Status') + 1).setValue('declined (с правкой)');
+  props.deleteProperty(propKey);
+  tg('editMessageReplyMarkup', {
+    chat_id: msg.chat.id,
+    message_id: msg.reply_to_message.message_id,
+    reply_markup: { inline_keyboard: [] }
+  });
+  tg('sendMessage', {
+    chat_id: msg.chat.id,
+    reply_to_message_id: msg.message_id,
+    text: '❌ Отказ отправлен на ' + who.email + ' — вашим текстом.'
+  });
+}
+
+/* Дописывает строку к сообщению заявки. Если keyboard не передать, Telegram
+   при редактировании убирает кнопки — это нужно после отправки отказа. */
+function appendToMessage(cb, suffix, keyboard) {
   try {
-    tg('editMessageText', {
+    var payload = {
       chat_id: cb.message.chat.id,
       message_id: cb.message.message_id,
       text: cb.message.text + suffix,
       parse_mode: 'HTML',
       disable_web_page_preview: true
-    });
+    };
+    if (keyboard) payload.reply_markup = keyboard;
+    tg('editMessageText', payload);
   } catch (e) { /* не критично */ }
 }
 

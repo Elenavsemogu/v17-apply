@@ -5,21 +5,27 @@
   Поля — строго по ТЗ «Заявка для заполнения командами»: сегменты B2C/B2B/B2B2C,
   стадии Seed…Series A+ (без Pre-Seed), рынки Top user markets (мультивыбор,
   с Global), pitch deck — ссылка или файл (до 10 МБ, уходит на Google Drive).
-  Порог MRR: от $10k для чистого B2C, от $30k для остальных сегментов.
-  Отказ мягкий: показывается вежливый отказ, но кнопкой «Submit anyway»
-  заявку всё равно можно отправить — она помечается `hard_filter_failed`.
+  «Other» в рынках и вертикалях открывает обязательное поле для своего текста.
+  **Два порога MRR на сегмент** (финальная логика Леры 14.08):
+  B2C — soft $10k / hard $5k, B2B и B2B2C — soft $30k / hard $15k.
+  MRR ≥ soft — анкета открывается сразу; между hard и soft — предупреждение,
+  но пройти дальше можно (заявка помечается `Below threshold` = отдельный пул,
+  автописьма нет); ниже hard — финальный отказ, кнопка Next исчезает,
+  заявка никуда не сохраняется.
 - `google-apps-script.js` — бэкенд на Google Apps Script: пишет заявку в Google
   Таблицу (журнал) и в Notion, шлёт уведомление в Telegram с кнопками
-  «Отказ (шаблон)» / «Взяли в работу», по кнопке отправляет письмо-отказ заявителю.
+  «Отказ (стандарт)», «Отказ (потенциал)», «Отказ (с правкой)» и «Взяли в работу».
+  Все заявки с формы помечены источником (колонка `Source`, callout в Notion,
+  строка «Источник» в TG).
 
 Сервер не нужен. Всё живёт на GitHub Pages (форма) + Google (бэкенд).
 
 **Правки без программиста:** при первом обращении скрипт сам создаёт в таблице
 листы «Settings» и «Decline templates». В «Settings» правятся пороги MRR
-(отдельно для чистого B2C и для остальных сегментов) и список вертикалей;
-в «Decline templates» — кнопки и тексты
-писем-отказов. Форма подтягивает настройки при каждой загрузке страницы,
-письма читают шаблоны в момент отправки — передеплой не нужен.
+(`MRR_THRESHOLD_B2C` / `MRR_THRESHOLD_OTHER` — мягкие, `MRR_HARD_B2C` /
+`MRR_HARD_OTHER` — жёсткие) и список вертикалей; в «Decline templates» —
+кнопки и тексты писем-отказов. Форма подтягивает настройки при каждой загрузке
+страницы, письма читают шаблоны в момент отправки — передеплой не нужен.
 
 ---
 
@@ -67,9 +73,10 @@
   и импорт → «Отправлять письма как»). Пока алиас не настроен, скрипт
   автоматически шлёт с основного ящика владельца (fallback в `sendDeclineMail`) —
   письма не теряются, менять код после настройки алиаса не нужно.
-- Заявкам ниже порога MRR (нажали «Submit anyway») отказ по шаблону
-  «Below thresholds» уходит сразу автоматически; статус в таблице —
-  `declined (auto: …)`. Остальным — вручную кнопками из Telegram.
+- Автоматических писем нет: заявки из soft-зоны просто помечаются как отдельный
+  пул (на форме им честно написано «cannot guarantee a response»). Все отказы —
+  вручную кнопками из Telegram.
+- Тема всех писем-отказов: **Thank you for your interest in V17**.
 - Лимит Gmail: ~100 писем/день на обычном аккаунте — для отказов достаточно.
 
 ### 5. Форма → хостинг → Тильда
@@ -85,35 +92,57 @@
 
 ---
 
-## Шаблоны отказов (на согласование Валерии/заказчику)
+## Кнопки в Telegram и письма-отказы (тексты Леры от 14.08)
 
-Все три с подстановкой имени и компании. Тон — вежливый, «дверь открыта».
+Тема всех писем — **Thank you for your interest in V17**.
 
-**1. Not a fit now** — универсальный отказ:
-> Hi {{name}}, — Thank you for applying to V17 and for the time you put into the
-> application for {{company}}. We have reviewed it carefully, and at this point it
-> does not match our current investment focus, so we will pass for now. This is a
-> reflection of our thesis and portfolio construction today — not a judgment on
-> your product or team. Things change quickly at our end as well: feel free to
-> reapply once your metrics or stage move forward. — Wishing you a great run, V17 Team
+**1. ✉️ Отказ (стандарт)** — универсальный, письмо уходит сразу:
+> Dear Team, — Thank you for taking the time to share your company with V17 and for
+> your interest in working together. After reviewing your submission, we've decided
+> not to move forward at this time. This isn't a reflection of your team or what
+> you're building — it simply isn't the right fit for our current investment focus.
+> We wish you continued success, and we'd welcome the opportunity to reconnect in
+> the future as your company grows. — Best regards, The V17 Team
 
-**2. Below thresholds** — не дотягивает по метрикам/стадии:
-> Hi {{name}}, — Thanks for your application to V17 with {{company}}. Right now the
-> company is earlier than the profile we invest in (we focus on Seed to Series A+
-> teams with MRR from $10k for B2C and from $30k for B2B). We will keep your
-> application in our pipeline, and we would genuinely love to hear from you again
-> once you cross those marks. — Best of luck — keep building, V17 Team
+**2. ✉️ Отказ (потенциал)** — понравились, но пока не проходят по порогам:
+> Dear Team, — Thank you for sharing your company with V17 — we genuinely enjoyed
+> learning more about what you're building. While it's not the right time for us to
+> move forward, this was not an easy no — your traction and direction stood out to
+> us. We'd love to stay in touch and take another look as you continue to grow.
+> Feel free to reach back out once you hit your next milestone — we'll be glad to
+> reconnect. — Best regards, The V17 Team
 
-**3. Outside thesis** — не наша вертикаль:
-> Hi {{name}}, — Thank you for telling us about {{company}}. We invest in a fairly
-> narrow set of verticals (B2C consumer products and B2B marketing/AI tools), and
-> your product falls outside that focus, so we will step aside here. It is purely
-> a matter of thesis fit. — We appreciate your interest in V17 and wish you every
-> success with the raise. V17 Team
+**3. ✏️ Отказ (с правкой)** — тот же стандартный текст, но бот сначала присылает
+черновик в чат: можно нажать «✅ Отправить как есть», «✖️ Отмена» или **ответить
+(reply) на сообщение своим текстом** — тогда письмо уйдёт вашим текстом
+(тема остаётся прежней). Статус в таблице — `declined (с правкой)`.
+
+**4. ✔️ Взяли в работу** — статус `in progress`; кнопки отказа остаются
+на месте, отказать можно и позже.
+
+Тексты правятся в листе «Decline templates» (первая строка — «стандарт», её же
+использует «с правкой»). При обновлении скрипта старые шаблоны заменяются
+на эти один раз, дальше правки в таблице сохраняются.
 
 ---
 
 ## Принятые решения
+
+Финальная логика от Леры 14.08 (правки по скриншотам):
+- Заголовок формы — просто **Apply**; лид — «Capital and marketing for a product
+  that can outpace its own growth»; сегменты в сайдбаре — двумя строками,
+  B2C и B2B подсвечены красным.
+- Шкала: слева подпись **VC17**, подпись справа (MEDIA FIT) убрана;
+  текст «Does not meet current fund thresholds — see the note above» остаётся.
+- С формы можно вернуться на сайт — ссылка «← Back to v17.vc» над заголовком
+  (открывает v17.vc в целом окне, а не внутри iframe).
+- Пороги MRR — два на сегмент, зависят от ответа на вопрос 1:
+  B2C soft $10k / hard $5k, B2B и B2B2C soft $30k / hard $15k.
+  Ниже hard — финальный отказ и никакой отправки; между hard и soft —
+  предупреждение и отдельный пул; выше soft — обычный проход.
+- «Other» (рынки на шаге 1 и вертикали на шаге 2) требует своего текста.
+- Шаг 2 (3 страницы анкеты) оставлен без изменений — «здесь всё корректно».
+- Все заявки помечены источником «Website form (v17.vc/apply)».
 
 Подтверждено Лерой 13.08 — **источник истины по полям: ТЗ «Заявка для
 заполнения командами.docx», а не Notion-форма**:
@@ -122,6 +151,7 @@
 - Top user markets: мультивыбор Global / USA / Europe / LatAm / SEA / Other (на отказ не влияет).
 - Pitch deck: ссылка ИЛИ файл (файл до 10 МБ, складывается на Google Drive владельца скрипта).
 - Порог MRR: только-B2C = $10k; остальные/смешанные сегменты = $30k (строже).
+  С 14.08 к каждому добавлен жёсткий порог (см. выше).
 
 Подтверждено Лерой 11.08:
 - Поле Name добавлено; шкала fit оставлена.
@@ -130,8 +160,8 @@
 Прочее:
 - Метрики: короткий набор из ТЗ (Retention D30/60/90, session, CAC, LTV, payback,
   монетизация, % organic, MoM-рост, marketing spend); Avg session необязателен.
-- Кастомный текст отказа из Telegram в MVP не делаем (3 шаблона + «Взяли в работу»);
-  нестандартный ответ проще написать с почты напрямую.
+- Кастомный текст отказа из Telegram сделан 14.08: кнопка «Отказ (с правкой)» —
+  бот присылает черновик, ответ на него уходит письмом.
 
 ## Ограничения MVP
 - Кнопки в TG обрабатываются опросом раз в минуту: после нажатия реакция
