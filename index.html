@@ -322,8 +322,8 @@
          на v17.vc/apply, без этого переход открылся бы внутри рамки. -->
     <a class="back-link" href="https://v17.vc/" target="_top">&larr; Back to v17.vc</a>
     <h1>Apply</h1>
-    <p class="lede">Capital and marketing for a product that can outpace its own growth.</p>
-    <p class="lede-sub">Equity, marketing-for-equity and cohort financing for B2C and B2B teams at Seed - Series A+. The application takes 5-7 minutes — we take it from there.</p>
+    <p class="lede">Capital and marketing for a product that can outpace its own growth</p>
+    <p class="lede-sub">Equity, marketing-for-equity and cohort financing for B2C and B2B teams at Seed - Series A+. The application takes 5-7 minutes — we take it from there</p>
 
     <div class="thesis-line">
       <span class="thesis-tag">Segments</span>
@@ -333,7 +333,13 @@
       </span>
     </div>
     <div class="thesis-line"><span class="thesis-tag">Stage</span><span>Seed - Series A+</span></div>
-    <div class="thesis-line"><span class="thesis-tag">MRR</span><span>from $10k (B2C) &middot; from $30k (B2B)</span></div>
+    <div class="thesis-line">
+      <span class="thesis-tag">MRR</span>
+      <span>
+        <span class="seg-line">&middot; from <b>$10k</b> (B2C)</span>
+        <span class="seg-line">&middot; from <b>$30k</b> (B2B)</span>
+      </span>
+    </div>
     <div class="thesis-line"><span class="thesis-tag">Markets</span><span>Global, US, Europe</span></div>
 
     <div class="gauge-block">
@@ -346,7 +352,7 @@
         <span><i class="dot" style="background:var(--capital)"></i>unit economics</span>
         <span><i class="dot" style="background:var(--media)"></i>traction and retention</span>
       </div>
-      <div class="gauge-verdict" id="gaugeVerdict">Fill in the form — the score updates as you go.</div>
+      <div class="gauge-verdict" id="gaugeVerdict">Fill in the form — the score updates as you go</div>
     </div>
   </div>
 
@@ -364,7 +370,7 @@
       <!-- ШАГ 1: Quick Fit Check -->
       <div class="step visible" data-step="0">
         <h2>Quick fit check</h2>
-        <p class="step-sub">Four quick questions — if we're a clear mismatch, we'll say so right away and save you your time.</p>
+        <p class="step-sub">Four quick questions — if we're a clear mismatch, we'll say so right away and save you your time</p>
 
         <!-- Поля шага 1 — строго по ТЗ «Заявка для заполнения командами»,
              НЕ по Notion-форме: без B2G/Other в сегментах, без Pre-Seed,
@@ -420,7 +426,7 @@
       <!-- ШАГ 2: О компании -->
       <div class="step" data-step="1">
         <h2>About the company</h2>
-        <p class="step-sub">Short and to the point — we'll ask for details next.</p>
+        <p class="step-sub">Short and to the point — we'll ask for details next</p>
 
         <div class="row2">
           <div class="field">
@@ -440,7 +446,7 @@
             <div class="pill" data-value="cohort">Cohort financing</div>
             <div class="pill" data-value="media">Marketing for equity</div>
           </div>
-          <p class="hint">Cohort financing is for teams already spending $200k+/month on marketing.</p>
+          <p class="hint">Cohort financing is for teams already spending $200k+/month on marketing</p>
         </div>
 
         <div class="row2" id="raiseWrap" style="display:none">
@@ -496,7 +502,7 @@
             <span id="deckFileName" style="font-size:13px;color:var(--ink-soft)">No file attached</span>
           </div>
           <input type="file" id="pitch_deck_file" accept=".pdf,.ppt,.pptx,.key,.zip" style="display:none">
-          <p class="hint">Paste a link or attach a file (PDF/PPT, up to 10 MB).</p>
+          <p class="hint">Paste a link or attach a file (PDF/PPT, up to 10 MB)</p>
           <div id="deckError"></div>
         </div>
 
@@ -514,7 +520,7 @@
       <!-- ШАГ 3: Метрики -->
       <div class="step" data-step="2">
         <h2>Metrics</h2>
-        <p class="step-sub">A few numbers so we can evaluate the fit quickly.</p>
+        <p class="step-sub">A few numbers so we can evaluate the fit quickly</p>
 
         <div class="row3">
           <div class="field"><label>Retention D30, %</label><input type="number" id="ret30" min="0" max="100" required></div>
@@ -556,14 +562,14 @@
       <!-- ШАГ 4: Контакты -->
       <div class="step" data-step="3">
         <h2>Contact info</h2>
-        <p class="step-sub">How can we contact you.</p>
+        <p class="step-sub">How can we contact you</p>
 
         <div class="row2">
           <div class="field"><label>Name</label><input type="text" id="contact_name" required></div>
           <div class="field">
             <label>Email</label>
             <input type="email" id="contact_email" placeholder="name@company.com" required>
-            <p class="hint">Corporate email only — no gmail, yahoo, hotmail, etc.</p>
+            <p class="hint">Corporate email only — no gmail, yahoo, hotmail and similar</p>
             <div id="emailError"></div>
           </div>
         </div>
@@ -738,14 +744,14 @@ function checkEmail(){
   if(!EMAIL_REGEX.test(val)){
     emailValid = false;
     el.classList.add('field-invalid');
-    errSlot.innerHTML = '<p style="font-size:12px;color:var(--warn);margin-top:5px">Please enter a valid email address.</p>';
+    errSlot.innerHTML = '<p style="font-size:12px;color:var(--warn);margin-top:5px">Please enter a valid email address</p>';
     return;
   }
   const domain = val.split('@')[1];
   if(FREE_EMAIL_DOMAINS.indexOf(domain) !== -1){
     emailValid = false;
     el.classList.add('field-invalid');
-    errSlot.innerHTML = '<p style="font-size:12px;color:var(--warn);margin-top:5px">This looks like a personal inbox — please use your company email.</p>';
+    errSlot.innerHTML = '<p style="font-size:12px;color:var(--warn);margin-top:5px">This looks like a personal inbox — please use your company email</p>';
   } else {
     emailValid = true;
     el.classList.remove('field-invalid');
@@ -767,7 +773,7 @@ document.getElementById('pitch_deck_file').addEventListener('change', function()
   if(!file) return;
   if(file.size > DECK_MAX_BYTES){
     this.value = '';
-    errSlot.innerHTML = '<p style="font-size:12px;color:var(--warn);margin-top:5px">The file is over 10 MB — please share a link instead.</p>';
+    errSlot.innerHTML = '<p style="font-size:12px;color:var(--warn);margin-top:5px">The file is over 10 MB — please share a link instead</p>';
     return;
   }
   nameSlot.textContent = file.name;
@@ -791,7 +797,7 @@ function validateDeck(){
   const ok = (linkEl.value || '').trim() !== '' || !!data.pitch_deck_file;
   linkEl.classList.toggle('field-invalid', !ok);
   fileEl.classList.toggle('field-invalid', !ok);
-  errSlot.innerHTML = ok ? '' : '<p style="font-size:12px;color:var(--warn);margin-top:5px">Please add a pitch deck — a link or a file.</p>';
+  errSlot.innerHTML = ok ? '' : '<p style="font-size:12px;color:var(--warn);margin-top:5px">Please add a pitch deck — a link or a file</p>';
   return ok;
 }
 document.getElementById('pitch_deck').addEventListener('input', function(){
@@ -855,6 +861,12 @@ function evaluateGate(){
   softFail = false;
   hardFail = false;
 
+  /* Подсказка в поле MRR — минимальный (жёсткий) порог выбранного сегмента:
+     B2C — 5,000, B2B и B2B2C — 15,000. Чтобы человек сразу видел ориентир
+     (просьба Леры 14.08). */
+  const mrrEl = document.getElementById('mrr');
+  if(mrrEl) mrrEl.placeholder = mrrHard().toLocaleString('en-US');
+
   if(seg.length && mrr){
     if(mrr < mrrHard()) hardFail = true;
     else if(mrr < mrrSoft()) softFail = true;
@@ -863,13 +875,13 @@ function evaluateGate(){
   if(hardFail){
     /* Ниже hard-порога: финальный отказ, шаг 2 не открывается,
        данные никуда не сохраняются (кнопки Next нет). */
-    slot.innerHTML = '<div class="decline-box"><b>Thank you for your interest in V17.</b> This is below our current investment stage. Please reach out again once you\'ve grown further — we\'d be glad to take another look.</div>';
+    slot.innerHTML = '<div class="decline-box"><b>Thank you for your interest in V17.</b> This is below our current investment stage. Please reach out again once you\'ve grown further — we\'d be glad to take another look</div>';
   } else if(softFail){
     /* Между hard и soft: предупреждаем, но пропускаем дальше — заявка
        попадёт в отдельный пул (cohort financing / пересмотр). */
     const label = isB2cOnly() ? 'B2C' : 'B2B';
     slot.innerHTML = '<div class="decline-box">This may not match our current focus — MRR below threshold ($' +
-      mrrSoft().toLocaleString('en-US') + ' for ' + label + '). You can still submit it — it will go into a separate pool for cohort financing and reconsideration, though we cannot guarantee a response.</div>';
+      mrrSoft().toLocaleString('en-US') + ' for ' + label + '). You can still submit it — it will go into a separate pool for cohort financing and reconsideration, though we cannot guarantee a response</div>';
   } else {
     slot.innerHTML = '';
   }
@@ -910,13 +922,13 @@ function updateGauge(){
 
   const verdictEl = document.getElementById('gaugeVerdict');
   if(mrr === 0 && ltvcac === 0 && ret30 === 0){
-    verdictEl.textContent = 'Fill in the form — the score updates as you go.';
+    verdictEl.textContent = 'Fill in the form — the score updates as you go';
   } else if(hardFail || softFail){
-    verdictEl.textContent = 'Does not meet current fund thresholds — see the note above.';
+    verdictEl.textContent = 'Does not meet current fund thresholds — see the note above';
   } else if(capitalScore >= 70 && mediaScore >= 50){
-    verdictEl.textContent = 'Strong match — this application goes into the priority pool.';
+    verdictEl.textContent = 'Strong match — this application goes into the priority pool';
   } else {
-    verdictEl.textContent = 'Partial match — we will review it alongside other applications.';
+    verdictEl.textContent = 'Partial match — we will review it alongside other applications';
   }
 }
 
@@ -990,9 +1002,9 @@ async function submitForm(){
     } else {
       console.log('SUBMIT_URL not configured — payload:', payload);
     }
-    document.querySelector('.card').innerHTML = '<div class="success-box"><div class="mark">&#10003;</div><h2>Application submitted</h2><p class="step-sub">We will look at the numbers and get back to you. If your application fits our criteria, we will reach out within a few weeks. Please do not be discouraged if you do not hear back from us — those are just our current focus areas, not a judgment on your company.</p></div>';
+    document.querySelector('.card').innerHTML = '<div class="success-box"><div class="mark">&#10003;</div><h2>Application submitted</h2><p class="step-sub">We will look at the numbers and get back to you. If your application fits our criteria, we will reach out within a few weeks. Please do not be discouraged if you do not hear back from us — those are just our current focus areas, not a judgment on your company</p></div>';
   } catch(err){
-    document.getElementById('submitResult').innerHTML = '<div class="decline-box">Something went wrong — please try again or email <a href="mailto:' + CONTACT_FALLBACK_EMAIL + '">' + CONTACT_FALLBACK_EMAIL + '</a>.</div>';
+    document.getElementById('submitResult').innerHTML = '<div class="decline-box">Something went wrong — please try again or email <a href="mailto:' + CONTACT_FALLBACK_EMAIL + '">' + CONTACT_FALLBACK_EMAIL + '</a></div>';
     btn.disabled = false;
     btn.textContent = 'Submit application';
   }
