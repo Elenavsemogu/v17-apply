@@ -141,6 +141,14 @@ function getSettings() {
   for (var i = 1; i < rows.length; i++) {
     if (rows[i][0]) out[String(rows[i][0]).trim()] = rows[i][1];
   }
+  /* Лист уже существовал, а настройки в коде добавились (так было с жёсткими
+     порогами) — дописываем недостающие строки, иначе их нельзя было бы
+     поменять из таблицы. */
+  var missing = DEFAULT_SETTINGS.filter(function (d) { return out[d[0]] === undefined; });
+  if (missing.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, missing.length, 3).setValues(missing);
+    missing.forEach(function (d) { out[d[0]] = d[1]; });
+  }
   return out;
 }
 
