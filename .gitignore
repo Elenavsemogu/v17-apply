@@ -1,1 +1,4 @@
 google-apps-script.CONFIGURED.js
+telegram-bot/.env
+telegram-bot/.venv/
+telegram-bot/bot_data.pickle

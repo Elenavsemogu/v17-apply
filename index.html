@@ -110,6 +110,7 @@
   .seg-line{display:block}
   .seg-line + .seg-line{margin-top:4px}
   .seg-line b{color:var(--capital);font-weight:600}
+  .mrr-amt{color:var(--ink);font-weight:700}
   .back-link{
     display:inline-block;
     margin-bottom:16px;
@@ -196,6 +197,8 @@
     color:var(--capital);
     margin-bottom:6px;
   }
+  /* заголовок шага получает фокус программно (прокрутка вверх) — рамка не нужна */
+  h2:focus{outline:none}
   .step-sub{font-family:var(--font-head);font-weight:500;color:var(--ink-muted);font-size:15px;margin-bottom:28px}
 
   .field{margin-bottom:20px}
@@ -282,6 +285,12 @@
     border-radius:10px;
     border:1px dashed var(--warn);
   }
+  .field-miss{
+    display:none;
+    font-size:12px;
+    color:var(--warn);
+    margin-top:5px;
+  }
   .field:has(> input[required]) > label::after,
   .field:has(> select[required]) > label::after,
   .field:has(> textarea[required]) > label::after,
@@ -335,15 +344,15 @@
     <div class="thesis-line"><span class="thesis-tag">Stage</span><span>Seed - Series A+</span></div>
     <div class="thesis-line">
       <span class="thesis-tag">MRR</span>
-      <span>
-        <span class="seg-line">&middot; from <b>$10k</b> (B2C)</span>
-        <span class="seg-line">&middot; from <b>$30k</b> (B2B)</span>
-      </span>
+          <span>
+            <span class="seg-line"><b>B2C</b>: <span class="mrr-amt">from $10k MRR</span></span>
+            <span class="seg-line"><b>B2B</b>: <span class="mrr-amt">from $30k MRR</span></span>
+          </span>
     </div>
     <div class="thesis-line"><span class="thesis-tag">Markets</span><span>Global, US, Europe</span></div>
 
     <div class="gauge-block">
-      <div class="gauge-label"><span>VC17</span></div>
+      <div class="gauge-label"><span>V17</span></div>
       <div class="gauge-track">
         <div class="gauge-fill-capital" id="gaugeCapital"></div>
         <div class="gauge-fill-media" id="gaugeMedia"></div>
@@ -482,8 +491,8 @@
         </div>
 
         <div class="field" id="verticalsOtherWrap" style="display:none">
-          <label>Which other vertical</label>
-          <input type="text" id="verticals_other" placeholder="Tell us in a few words" required>
+          <label>List relevant vertical(s)</label>
+          <input type="text" id="verticals_other" placeholder="Describe briefly" required>
         </div>
 
         <div class="field">
@@ -646,6 +655,8 @@ document.querySelectorAll('input.money').forEach(function(el){
     const digits = el.value.replace(/[^0-9]/g, '');
     el.value = digits ? Number(digits).toLocaleString('en-US') : '';
     data[el.id] = digits ? Number(digits) : '';
+    el.classList.remove('field-invalid');
+    setFieldMiss(el, false);
     evaluateGate();
     updateGauge();
   });
@@ -671,6 +682,8 @@ function bindPillGroup(group){
         pill.classList.add('selected');
         data[name] = pill.dataset.value;
       }
+      group.classList.remove('field-invalid');
+      setFieldMiss(group, false);
       evaluateGate();
       updateGauge();
     });
@@ -807,23 +820,44 @@ document.getElementById('pitch_deck').addEventListener('input', function(){
 document.querySelectorAll('input:not(.money):not([type=file]), textarea, select').forEach(function(el){
   el.addEventListener('input', function(){
     data[el.id] = el.value;
+    el.classList.remove('field-invalid');
+    setFieldMiss(el, false);
     evaluateGate();
     updateGauge();
   });
 });
 
+var MISS_MSG = 'Looks like you missed a required field — please fill it in to continue';
+
+function setFieldMiss(el, on){
+  const field = (el && el.closest) ? (el.closest('.field') || el) : el;
+  if(!field) return;
+  let slot = field.querySelector('.field-miss');
+  if(!slot){
+    slot = document.createElement('p');
+    slot.className = 'field-miss';
+    field.appendChild(slot);
+  }
+  slot.textContent = on ? MISS_MSG : '';
+  slot.style.display = on ? 'block' : 'none';
+}
+
 function validateStep(i){
   const stepEl = document.querySelector('.step[data-step="' + i + '"]');
   let valid = true;
   let firstInvalid = null;
+  stepEl.querySelectorAll('.field-miss').forEach(function(s){ s.style.display = 'none'; s.textContent = ''; });
 
   stepEl.querySelectorAll('input[required], select[required], textarea[required]').forEach(function(el){
     const fieldWrap = el.closest('.field');
     if(fieldWrap && fieldWrap.offsetParent === null) return;
     const filled = (el.value || '').trim() !== '';
     el.classList.toggle('field-invalid', !filled);
-    if(!filled && !firstInvalid) firstInvalid = el;
-    if(!filled) valid = false;
+    if(!filled){
+      setFieldMiss(el, true);
+      if(!firstInvalid) firstInvalid = el;
+      valid = false;
+    }
   });
 
   stepEl.querySelectorAll('.pillgroup[data-required="true"]').forEach(function(group){
@@ -832,13 +866,18 @@ function validateStep(i){
     const val = data[group.dataset.name];
     const filled = Array.isArray(val) ? val.length > 0 : !!val;
     group.classList.toggle('field-invalid', !filled);
-    if(!filled && !firstInvalid) firstInvalid = group;
-    if(!filled) valid = false;
+    if(!filled){
+      setFieldMiss(group, true);
+      if(!firstInvalid) firstInvalid = group;
+      valid = false;
+    }
   });
 
   if(i === 1 && !validateDeck()){
     valid = false;
-    if(!firstInvalid) firstInvalid = document.getElementById('pitch_deck');
+    const deckField = document.getElementById('pitch_deck');
+    setFieldMiss(deckField, true);
+    if(!firstInvalid) firstInvalid = deckField;
   }
 
   return { valid: valid, firstInvalid: firstInvalid };
@@ -947,9 +986,43 @@ function showStep(i){
   document.getElementById('btnBack').disabled = (i === 0);
   document.getElementById('btnNext').textContent = (i === totalSteps - 1) ? 'Submit application' : 'Next';
   updateNextLabel();
-  const card = document.querySelector('.card');
-  if(card && card.scrollIntoView && i > 0) card.scrollIntoView({behavior:'smooth', block:'start'});
+  if(v17Booted) v17ScrollToCard(stepEl);
 }
+
+/* После каждого шага возвращаем человека к началу карточки — иначе на телефоне
+   он остаётся внизу предыдущего шага и листает вверх руками (замечание Димы
+   14.08). Форма живёт в iframe с scrolling=no и высотой по контенту, поэтому
+   свой scrollIntoView внутри неё ничего не двигает — прокручивать должна
+   страница Тильды, просим её сообщением. Если на странице ещё старый сниппет
+   без этого обработчика, срабатывает запасной путь: фокус на заголовке шага —
+   подтянуть сфокусированный элемент в видимую область браузер умеет сам, в том
+   числе через границу iframe. Фокусируем заголовок, а не поле ввода, чтобы
+   на мобиле не выскакивала клавиатура. */
+var v17Booted = false;
+var v17ParentScrolls = false;
+var v17FocusFallback = null;
+function v17ScrollToCard(scope){
+  const card = document.querySelector('.card');
+  if(!card) return;
+  if(window.parent === window){
+    card.scrollIntoView({behavior:'smooth', block:'start'});
+    return;
+  }
+  const top = Math.round(card.getBoundingClientRect().top + (window.scrollY || 0));
+  try{ window.parent.postMessage({ v17ScrollTop: top }, '*'); }catch(e){}
+  clearTimeout(v17FocusFallback);
+  if(v17ParentScrolls) return;
+  const heading = (scope || card).querySelector('h2');
+  if(!heading) return;
+  v17FocusFallback = setTimeout(function(){
+    if(v17ParentScrolls) return;
+    heading.setAttribute('tabindex', '-1');
+    heading.focus();
+  }, 200);
+}
+window.addEventListener('message', function(ev){
+  if(ev.data && ev.data.v17ScrollAck) v17ParentScrolls = true;
+});
 
 document.getElementById('btnNext').addEventListener('click', async function(){
   if(currentStep === 0 && hardFail) return;   /* ниже hard-порога дальше не пускаем */
@@ -1003,6 +1076,7 @@ async function submitForm(){
       console.log('SUBMIT_URL not configured — payload:', payload);
     }
     document.querySelector('.card').innerHTML = '<div class="success-box"><div class="mark">&#10003;</div><h2>Application submitted</h2><p class="step-sub">We will look at the numbers and get back to you. If your application fits our criteria, we will reach out within a few weeks. Please do not be discouraged if you do not hear back from us — those are just our current focus areas, not a judgment on your company</p></div>';
+    v17ScrollToCard();
   } catch(err){
     document.getElementById('submitResult').innerHTML = '<div class="decline-box">Something went wrong — please try again or email <a href="mailto:' + CONTACT_FALLBACK_EMAIL + '">' + CONTACT_FALLBACK_EMAIL + '</a></div>';
     btn.disabled = false;
@@ -1097,6 +1171,9 @@ if (window.parent === window) {
 }
 
 showStep(0);
+/* Дальше переходы между шагами можно сопровождать прокруткой (при первой
+   отрисовке она не нужна — иначе страницу дёрнет к форме сразу при загрузке). */
+v17Booted = true;
 
 /* При встраивании в iframe сообщаем родителю свою высоту,
    чтобы страница Тильды подгоняла iframe без внутреннего скролла. */

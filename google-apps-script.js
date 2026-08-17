@@ -213,9 +213,16 @@ function getSheet() {
   return sheet;
 }
 
-/* Пометка «заявка пришла из формы на сайте» — просьба Леры от 14.08.
-   Видна в таблице (колонка Source), в карточке Notion и в сообщении Telegram. */
+/* Пометка источника — просьба Леры от 14.08. Сайт шлёт source=site_form,
+   бот @V17_apply_bot шлёт source=telegram_bot. Видна в таблице, Notion и TG. */
 var SOURCE_LABEL = 'Website form (v17.vc/apply)';
+var SOURCE_LABEL_TG = 'Telegram bot (@V17_apply_bot)';
+
+function sourceLabel(d) {
+  var s = String((d && d.source) || '');
+  if (s === 'telegram_bot' || s === 'telegram') return SOURCE_LABEL_TG;
+  return SOURCE_LABEL;
+}
 
 /* «Other» в мультивыборе: к выбранным значениям добавляем уточнение. */
 function withOther(list, other) {
@@ -264,7 +271,7 @@ function handleFormSubmission(d) {
     d.ret30 || '', d.ret60 || '', d.ret90 || '', d.cac || '', d.ltv || '', d.session || '',
     safe(d.payback || ''), safe(d.sub_model || ''), d.organic_pct || '', safe(d.mrr_growth || ''), d.marketing_spend || '',
     safe(d.contact_name || ''), d.contact_email || '', safe(d.notes || ''),
-    'new', '', SOURCE_LABEL
+    'new', '', sourceLabel(d)
   ];
   sheet.appendRow(row);
   var rowNum = sheet.getLastRow();
@@ -322,6 +329,101 @@ function saveDeckFile(d) {
   return file.getUrl();
 }
 
+/* Питчдек в колонку Notion «Files & media»: сначала сам файл через File Upload API,
+   если не вышло — прямая ссылка (Drive или та, что прислали). */
+function buildNotionFiles(d) {
+  var files = [];
+  var uploadId = uploadDeckToNotion(d);
+  if (uploadId) {
+    files.push({
+      type: 'file_upload',
+      name: (d.pitch_deck_file && d.pitch_deck_file.name) || 'pitch-deck',
+      file_upload: { id: uploadId }
+    });
+    return files;
+  }
+  var urls = String(d.pitch_deck || '').split(' · ');
+  for (var i = 0; i < urls.length; i++) {
+    var url = urls[i].trim();
+    if (/^https?:\/\//i.test(url)) {
+      files.push({ name: 'Pitch deck', external: { url: url } });
+      break;
+    }
+  }
+  return files.length ? files : null;
+}
+
+function uploadDeckToNotion(d) {
+  if (!CONFIG.NOTION_TOKEN || !d.pitch_deck_file || !d.pitch_deck_file.data) return '';
+  try {
+    var name = d.pitch_deck_file.name || 'pitch-deck';
+    var mime = d.pitch_deck_file.mime || 'application/octet-stream';
+    var blob = Utilities.newBlob(Utilities.base64Decode(d.pitch_deck_file.data), mime, name);
+    var created = JSON.parse(UrlFetchApp.fetch('https://api.notion.com/v1/file_uploads', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: notionHeaders(),
+      payload: JSON.stringify({ filename: name, content_type: mime }),
+      muteHttpExceptions: true
+    }).getContentText());
+    if (!created.id) {
+      Logger.log('Notion file_uploads create: ' + JSON.stringify(created));
+      return '';
+    }
+    blob.setName(name);
+    var sent = UrlFetchApp.fetch('https://api.notion.com/v1/file_uploads/' + created.id + '/send', {
+      method: 'post',
+      headers: notionHeaders(),
+      payload: { file: blob },
+      muteHttpExceptions: true
+    });
+    var out = JSON.parse(sent.getContentText());
+    if (out.object === 'error') {
+      Logger.log('Notion file send: ' + sent.getContentText());
+      return '';
+    }
+    return created.id;
+  } catch (e) {
+    Logger.log('uploadDeckToNotion: ' + e);
+    return '';
+  }
+}
+
+function notionHeaders() {
+  return {
+    'Authorization': 'Bearer ' + CONFIG.NOTION_TOKEN,
+    'Notion-Version': '2025-09-03'
+  };
+}
+
+function notionPageId(url) {
+  var m = String(url || '').match(/([0-9a-f]{32})/i);
+  if (!m) return '';
+  return m[1].replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+}
+
+/* Отказ из Telegram → статус Declined в карточке Notion. */
+function markNotionDeclined(notionUrl) {
+  var id = notionPageId(notionUrl);
+  if (!id || !CONFIG.NOTION_TOKEN) return;
+  var payloads = [
+    { properties: { Status: { status: { name: 'Declined' } } } },
+    { properties: { Status: { select: { name: 'Declined' } } } }
+  ];
+  for (var i = 0; i < payloads.length; i++) {
+    var resp = UrlFetchApp.fetch('https://api.notion.com/v1/pages/' + id, {
+      method: 'patch',
+      contentType: 'application/json',
+      headers: notionHeaders(),
+      payload: JSON.stringify(payloads[i]),
+      muteHttpExceptions: true
+    });
+    var out = JSON.parse(resp.getContentText());
+    if (out.object !== 'error') return;
+    Logger.log('markNotionDeclined: ' + out.message);
+  }
+}
+
 /* ============================ Notion ============================
    Заявка становится карточкой в CRM заказчика «V17 dealflow».
    Маппинг на их реальные колонки (у 'Industry ' и 'Revenue ' в названии
@@ -329,6 +431,11 @@ function saveDeckFile(d) {
      Name ← компания · Email ← email · Type ← сегмент · Industry ← вертикали
      Revenue ← MRR · Estimated Value ← сумма раунда · Financing ← инструмент
      Lead Source ← 'Website form'. Остальные детали — в тело карточки. */
+
+function moneyFmt(v) {
+  var n = parseFloat(v);
+  return isNaN(n) ? (v || '') : n.toLocaleString('en-US');
+}
 
 function createNotionPage(d) {
   if (!CONFIG.NOTION_TOKEN || !CONFIG.NOTION_DATA_SOURCE_ID) return '';
@@ -351,7 +458,9 @@ function createNotionPage(d) {
     return { name: industryRename[v] || v };
   });
 
-  var finMap = { investment: 'Equity', cohort: 'Cohort financing', media: 'Marketing for equity' };
+  /* Лера 17.08 завела в Notion опцию «Marketing-for-Equity» — имя должно
+     совпасть один в один, иначе Financing не матчится и в фильтре пусто. */
+  var finMap = { investment: 'Equity', cohort: 'Cohort financing', media: 'Marketing-for-Equity' };
   var financing = (d.interested_in || []).map(function (v) { return { name: finMap[v] || v }; });
 
   var properties = {
@@ -364,12 +473,14 @@ function createNotionPage(d) {
   if (type) properties['Type'] = { select: { name: type } };
   if (industries.length) properties['Industry '] = { multi_select: industries };
   if (financing.length) properties['Financing'] = { multi_select: financing };
+  var files = buildNotionFiles(d);
+  if (files) properties['Files & media'] = { files: files };
 
   var children = [];
   /* Первая строка карточки — откуда заявка (просьба Леры от 14.08). */
   children.push({ callout: {
     icon: { emoji: '🌐' },
-    rich_text: rt('Submitted through the application form on the site — ' + SOURCE_LABEL)
+    rich_text: rt('Submitted through ' + sourceLabel(d))
   }});
   if (d.below_threshold) {
     children.push({ callout: {
@@ -384,23 +495,26 @@ function createNotionPage(d) {
       { text: { content: String(value).slice(0, 1800) } }
     ]}});
   };
-  line('Source', SOURCE_LABEL);
+  line('Source', sourceLabel(d));
+  line('Telegram', d.telegram);
+  line('MRR, $', d.mrr ? moneyFmt(d.mrr) : '');
+  line('Amount raising, $', d.amount_raising ? moneyFmt(d.amount_raising) : '');
   line('Website', d.website);
   line('Stage', d.stage);
   line('Top user markets', d.market_text || (Array.isArray(d.market) ? d.market.join(', ') : d.market));
   line('Other vertical', d.verticals_other);
-  line('Post-money, $', d.post_money);
+  line('Post-money, $', moneyFmt(d.post_money));
   line('Pitch deck', d.pitch_deck);
   line('Contact', (d.contact_name || '') + ' · ' + (d.contact_email || ''));
   children.push({ heading_3: { rich_text: rt('Metrics') } });
   line('Retention D30/D60/D90, %', (d.ret30 || '—') + ' / ' + (d.ret60 || '—') + ' / ' + (d.ret90 || '—'));
-  line('CAC / LTV, $', (d.cac || '—') + ' / ' + (d.ltv || '—'));
+  line('CAC / LTV, $', (d.cac ? moneyFmt(d.cac) : '—') + ' / ' + (d.ltv ? moneyFmt(d.ltv) : '—'));
   line('Avg session, min', d.session);
   line('Payback', d.payback);
   line('Monetization', d.sub_model);
   line('Organic traffic, %', d.organic_pct);
   line('MRR & MoM growth', d.mrr_growth);
-  line('Marketing spend, $/mo', d.marketing_spend);
+  line('Marketing spend, $/mo', d.marketing_spend ? moneyFmt(d.marketing_spend) : '');
   var block = function (title, text) {
     if (!text) return;
     children.push({ heading_3: { rich_text: rt(title) } });
@@ -471,7 +585,7 @@ function notifyTelegram(d, rowNum, notionUrl) {
 
   var lines = [
     (d.below_threshold ? '⚠️ <b>Новая заявка (MRR ниже порога — пул cohort)</b>' : '✅ <b>Новая заявка</b>'),
-    '🌐 Источник: форма на сайте (v17.vc/apply)',
+    '🌐 Источник: ' + (sourceLabel(d) === SOURCE_LABEL_TG ? 'Telegram-бот (@V17_apply_bot)' : 'форма на сайте (v17.vc/apply)'),
     '',
     '<b>' + esc(d.company_name || '(без названия)') + '</b> — ' + esc(d.website || ''),
     esc(joined(d.segment).toUpperCase()) + ' · ' + esc(d.stage || '—') + ' · рынки: ' + esc(d.market_text || joined(d.market) || '—'),
@@ -483,7 +597,8 @@ function notifyTelegram(d, rowNum, notionUrl) {
     'Organic: ' + esc(d.organic_pct || '—') + '% · Spend: ' + money(d.marketing_spend) + '/мес',
     (d.pitch_deck ? 'Deck: ' + esc(d.pitch_deck) : ''),
     '',
-    '👤 ' + esc(d.contact_name || '—') + ' · ' + esc(d.contact_email || '—'),
+    '👤 ' + esc(d.contact_name || '—') + ' · ' + esc(d.contact_email || '—') +
+      (d.telegram ? ' · ' + esc(d.telegram) : ''),
     (notionUrl ? '📄 <a href="' + notionUrl + '">Открыть в Notion</a>' : '')
   ];
 
@@ -657,6 +772,7 @@ function handleCallback(cb) {
     }
     sendDeclineMail(who.email, fillTemplate(tpl.subject, who), fillTemplate(tpl.body, who));
     sheet.getRange(rowNum, statusCol).setValue('declined (' + tpl.label + ')');
+    markNotionDeclined(sheet.getRange(rowNum, SHEET_HEADERS.indexOf('Notion URL') + 1).getValue());
     tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Отказ отправлен на ' + who.email });
     if (kind === 'ds') {
       PropertiesService.getScriptProperties().deleteProperty('draft_' + cb.message.message_id);
@@ -692,6 +808,7 @@ function handleDraftReply(msg) {
   var subject = (templates[0] && templates[0].subject) || DECLINE_MAIL_SUBJECT;
   sendDeclineMail(who.email, subject, msg.text);
   sheet.getRange(rowNum, SHEET_HEADERS.indexOf('Status') + 1).setValue('declined (с правкой)');
+  markNotionDeclined(sheet.getRange(rowNum, SHEET_HEADERS.indexOf('Notion URL') + 1).getValue());
   props.deleteProperty(propKey);
   tg('editMessageReplyMarkup', {
     chat_id: msg.chat.id,

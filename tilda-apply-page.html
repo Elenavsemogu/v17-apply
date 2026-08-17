@@ -12,13 +12,38 @@
   var f = box && box.querySelector('iframe');
   if (!f) return;
 
-  /* автовысота: форма шлёт высоту контента postMessage-ом */
   window.addEventListener('message', function (ev) {
-    if (!ev.data || !ev.data.v17FormHeight || ev.source !== f.contentWindow) return;
-    var h = Math.min(Math.max(ev.data.v17FormHeight + 40, 600), 6000);
-    if (Math.abs((parseFloat(f.style.height) || 0) - h) > 4) f.style.height = h + 'px';
-    if (seen) send();
+    if (!ev.data || ev.source !== f.contentWindow) return;
+
+    /* автовысота: форма шлёт высоту контента postMessage-ом */
+    if (ev.data.v17FormHeight) {
+      var h = Math.min(Math.max(ev.data.v17FormHeight + 40, 600), 6000);
+      if (Math.abs((parseFloat(f.style.height) || 0) - h) > 4) f.style.height = h + 'px';
+      if (seen) send();
+    }
+
+    /* прокрутка к началу шага: сама форма внутри iframe (scrolling=no, высота
+       по контенту) страницу прокрутить не может, поэтому просит нас */
+    if (typeof ev.data.v17ScrollTop === 'number') {
+      var top = f.getBoundingClientRect().top + (window.pageYOffset || 0) + ev.data.v17ScrollTop;
+      window.scrollTo({ top: Math.max(0, top - headerOffset() - 16), behavior: 'smooth' });
+      /* подтверждаем форме, что прокрутку взяли на себя — она не будет
+         дублировать её фокусом на заголовке */
+      try { f.contentWindow.postMessage({ v17ScrollAck: 1 }, '*'); } catch (_) {}
+    }
   });
+
+  /* Высота залипающей шапки Тильды, чтобы она не накрыла заголовок шага. */
+  function headerOffset() {
+    var best = 0;
+    document.querySelectorAll('.t-header, header, .t396__artboard').forEach(function (el) {
+      var cs = getComputedStyle(el);
+      if (cs.position !== 'fixed' && cs.position !== 'sticky') return;
+      var r = el.getBoundingClientRect();
+      if (r.top <= 1 && r.height > best && r.height < 200) best = r.height;
+    });
+    return best;
+  }
 
   /* анимации формы — когда доскроллили до неё (на /apply это почти сразу) */
   var seen = false;
