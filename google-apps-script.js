@@ -607,6 +607,35 @@ function tg(method, payload) {
   return resp;
 }
 
+/* Если заявитель приложил pitch deck файлом, во внутренний чат он тоже
+   приходит настоящим документом. При ссылке отдельного документа нет —
+   ссылка остаётся в основном сообщении заявки. */
+function sendTelegramDeck(d, replyToMessageId) {
+  var f = d.pitch_deck_file;
+  if (!f || !f.data) return true;
+  var blob = Utilities.newBlob(
+    Utilities.base64Decode(f.data),
+    f.mime || 'application/octet-stream',
+    f.name || 'pitch-deck'
+  );
+  var resp = UrlFetchApp.fetch(
+    'https://api.telegram.org/bot' + CONFIG.TELEGRAM_TOKEN + '/sendDocument',
+    {
+      method: 'post',
+      payload: {
+        chat_id: String(tgChatId()),
+        document: blob,
+        caption: 'Pitch deck — ' + String(d.company_name || 'без названия'),
+        reply_to_message_id: String(replyToMessageId)
+      },
+      muteHttpExceptions: true
+    }
+  );
+  var out = JSON.parse(resp.getContentText());
+  if (!out.ok) throw new Error(out.description || 'Telegram sendDocument failed');
+  return true;
+}
+
 function notifyTelegram(d, rowNum, notionUrl) {
   if (!CONFIG.TELEGRAM_TOKEN || !CONFIG.TELEGRAM_CHAT_ID) return;
 
@@ -625,7 +654,9 @@ function notifyTelegram(d, rowNum, notionUrl) {
     'Retention 30/60/90: ' + esc((d.ret30 || '—') + '/' + (d.ret60 || '—') + '/' + (d.ret90 || '—') + '%') +
       ' · CAC ' + money(d.cac) + ' · LTV ' + money(d.ltv),
     'Organic: ' + esc(d.organic_pct || '—') + '% · Spend: ' + money(d.marketing_spend) + '/мес',
-    (d.pitch_deck ? 'Deck: ' + esc(d.pitch_deck) : ''),
+    (d.pitch_deck_file && d.pitch_deck_file.data
+      ? 'Deck: файл приложен следующим сообщением'
+      : (d.pitch_deck ? 'Deck: ' + esc(d.pitch_deck) : '')),
     '',
     '👤 ' + esc(d.contact_name || '—') + ' · ' + esc(d.contact_email || '—') +
       (d.telegram ? ' · ' + esc(d.telegram) : ''),
@@ -647,6 +678,7 @@ function notifyTelegram(d, rowNum, notionUrl) {
   });
   var out = JSON.parse(resp.getContentText());
   if (!out.ok) throw new Error(out.description || 'Telegram sendMessage failed');
+  sendTelegramDeck(d, out.result.message_id);
   return true;
 }
 
