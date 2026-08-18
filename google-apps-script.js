@@ -14,7 +14,7 @@
  *  - создать Google Таблицу → Расширения → Apps Script → вставить этот код
  *  - заполнить CONFIG ниже
  *  - Развернуть → Веб-приложение (Выполнять как: я; Доступ: все) → URL в SUBMIT_URL формы
- *  - зарегистрировать этот же URL как webhook Telegram-бота (см. README)
+ *  - один раз запустить setupTelegramPolling() и выдать нужные разрешения
  */
 
 var CONFIG = {
@@ -41,6 +41,8 @@ var CONFIG = {
   SETTINGS_SHEET: 'Settings',
   TEMPLATES_SHEET: 'Decline templates'
 };
+
+var BACKEND_VERSION = '2026-08-18a';
 
 /* ==========================================================================
    НАСТРОЙКИ БЕЗ ПРОГРАММИСТА.
@@ -112,6 +114,7 @@ function doGet(e) {
     var s = getSettings();
     return jsonResponse({
       ok: true,
+      backend_version: BACKEND_VERSION,
       thresholds: {
         b2c: Number(s.MRR_THRESHOLD_B2C) || 10000,
         other: Number(s.MRR_THRESHOLD_OTHER) || 30000,
@@ -121,7 +124,12 @@ function doGet(e) {
       verticals: String(s.VERTICALS || '').split(',').map(function (v) { return v.trim(); }).filter(Boolean)
     });
   }
-  return jsonResponse({ ok: true, service: 'v17-apply', time: new Date().toISOString() });
+  return jsonResponse({
+    ok: true,
+    service: 'v17-apply',
+    backend_version: BACKEND_VERSION,
+    time: new Date().toISOString()
+  });
 }
 
 /* ==================== настройки и шаблоны из таблицы ==================== */
@@ -214,9 +222,9 @@ function getSheet() {
 }
 
 /* Пометка источника — просьба Леры от 14.08. Сайт шлёт source=site_form,
-   бот @V17_apply_bot шлёт source=telegram_bot. Видна в таблице, Notion и TG. */
+   публичный Telegram-бот шлёт source=telegram_bot. */
 var SOURCE_LABEL = 'Website form (v17.vc/apply)';
-var SOURCE_LABEL_TG = 'Telegram bot (@V17_apply_bot)';
+var SOURCE_LABEL_TG = 'Telegram bot (V17_apply)';
 
 function sourceLabel(d) {
   var s = String((d && d.source) || '');
@@ -286,13 +294,24 @@ function handleFormSubmission(d) {
     sheet.getRange(rowNum, SHEET_HEADERS.indexOf('Notion URL') + 1).setValue('ERROR: ' + err);
   }
 
+  var telegramNotified = false;
+  var telegramError = '';
   try {
     notifyTelegram(d, rowNum, notionUrl);
+    telegramNotified = true;
   } catch (err) {
-    // Телеграм упал — заявка всё равно сохранена в таблице и Notion.
+    // Заявка сохранена, но сбой больше не прячем: виден в таблице и ответе API.
+    telegramError = String(err);
+    sheet.getRange(rowNum, statusCol).setValue('new (Telegram notification failed)');
+    Logger.log('notifyTelegram failed: ' + telegramError);
   }
 
-  return jsonResponse({ ok: true });
+  return jsonResponse({
+    ok: true,
+    backend_version: BACKEND_VERSION,
+    telegram_notified: telegramNotified,
+    telegram_error: telegramError
+  });
 }
 
 /* Письмо-отказ. Пытаемся отправить от noreply@v17.vc; если алиас ещё
@@ -397,31 +416,40 @@ function notionHeaders() {
 }
 
 function notionPageId(url) {
-  var m = String(url || '').match(/([0-9a-f]{32})/i);
+  var m = String(url || '').match(/([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
   if (!m) return '';
-  return m[1].replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+  var id = m[1].replace(/-/g, '');
+  return id.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
 }
 
 /* Отказ из Telegram → статус Declined в карточке Notion. */
 function markNotionDeclined(notionUrl) {
   var id = notionPageId(notionUrl);
-  if (!id || !CONFIG.NOTION_TOKEN) return;
+  if (!id) return { ok: false, error: 'Notion page id not found' };
+  if (!CONFIG.NOTION_TOKEN) return { ok: false, error: 'Notion token is not configured' };
   var payloads = [
     { properties: { Status: { status: { name: 'Declined' } } } },
     { properties: { Status: { select: { name: 'Declined' } } } }
   ];
+  var lastError = '';
   for (var i = 0; i < payloads.length; i++) {
-    var resp = UrlFetchApp.fetch('https://api.notion.com/v1/pages/' + id, {
-      method: 'patch',
-      contentType: 'application/json',
-      headers: notionHeaders(),
-      payload: JSON.stringify(payloads[i]),
-      muteHttpExceptions: true
-    });
-    var out = JSON.parse(resp.getContentText());
-    if (out.object !== 'error') return;
-    Logger.log('markNotionDeclined: ' + out.message);
+    try {
+      var resp = UrlFetchApp.fetch('https://api.notion.com/v1/pages/' + id, {
+        method: 'patch',
+        contentType: 'application/json',
+        headers: notionHeaders(),
+        payload: JSON.stringify(payloads[i]),
+        muteHttpExceptions: true
+      });
+      var out = JSON.parse(resp.getContentText());
+      if (out.object !== 'error') return { ok: true };
+      lastError = out.message || 'unknown Notion error';
+    } catch (e) {
+      lastError = String(e);
+    }
+    Logger.log('markNotionDeclined: ' + lastError);
   }
+  return { ok: false, error: lastError };
 }
 
 /* ============================ Notion ============================
@@ -463,12 +491,14 @@ function createNotionPage(d) {
   var finMap = { investment: 'Equity', cohort: 'Cohort financing', media: 'Marketing-for-Equity' };
   var financing = (d.interested_in || []).map(function (v) { return { name: finMap[v] || v }; });
 
+  var notionLeadSource = sourceLabel(d) === SOURCE_LABEL_TG ? 'Telegram bot' : 'Website form';
   var properties = {
     'Name':            { title: rt((d.below_threshold ? '⚠️ ' : '') + (d.company_name || '(no name)')) },
     'Email':           { email: d.contact_email || null },
     'Revenue ':        { number: num(d.mrr) },
     'Estimated Value': { number: num(d.amount_raising) },
-    'Lead Source':     { select: { name: 'Website form' } }
+    'Status':          { status: { name: 'Lead' } },
+    'Lead Source':     { select: { name: notionLeadSource } }
   };
   if (type) properties['Type'] = { select: { name: type } };
   if (industries.length) properties['Industry '] = { multi_select: industries };
@@ -585,7 +615,7 @@ function notifyTelegram(d, rowNum, notionUrl) {
 
   var lines = [
     (d.below_threshold ? '⚠️ <b>Новая заявка (MRR ниже порога — пул cohort)</b>' : '✅ <b>Новая заявка</b>'),
-    '🌐 Источник: ' + (sourceLabel(d) === SOURCE_LABEL_TG ? 'Telegram-бот (@V17_apply_bot)' : 'форма на сайте (v17.vc/apply)'),
+    '🌐 Источник: ' + (sourceLabel(d) === SOURCE_LABEL_TG ? 'Telegram-бот V17_apply' : 'форма на сайте (v17.vc/apply)'),
     '',
     '<b>' + esc(d.company_name || '(без названия)') + '</b> — ' + esc(d.website || ''),
     esc(joined(d.segment).toUpperCase()) + ' · ' + esc(d.stage || '—') + ' · рынки: ' + esc(d.market_text || joined(d.market) || '—'),
@@ -608,13 +638,16 @@ function notifyTelegram(d, rowNum, notionUrl) {
   var key = rowKey(d.contact_email, d.company_name);
   var keyboard = { inline_keyboard: declineKeyboard(rowNum, key) };
 
-  tg('sendMessage', {
+  var resp = tg('sendMessage', {
     chat_id: tgChatId(),
     text: lines.filter(Boolean).join('\n'),
     parse_mode: 'HTML',
     disable_web_page_preview: true,
     reply_markup: keyboard
   });
+  var out = JSON.parse(resp.getContentText());
+  if (!out.ok) throw new Error(out.description || 'Telegram sendMessage failed');
+  return true;
 }
 
 /* Кнопки под заявкой (набор Леры от 14.08):
@@ -772,12 +805,23 @@ function handleCallback(cb) {
     }
     sendDeclineMail(who.email, fillTemplate(tpl.subject, who), fillTemplate(tpl.body, who));
     sheet.getRange(rowNum, statusCol).setValue('declined (' + tpl.label + ')');
-    markNotionDeclined(sheet.getRange(rowNum, SHEET_HEADERS.indexOf('Notion URL') + 1).getValue());
-    tg('answerCallbackQuery', { callback_query_id: cb.id, text: 'Отказ отправлен на ' + who.email });
+    var notionResult = markNotionDeclined(
+      sheet.getRange(rowNum, SHEET_HEADERS.indexOf('Notion URL') + 1).getValue()
+    );
+    var notionNote = notionResult.ok ? ' · Notion → Declined' : ' · ⚠️ Notion не обновлён';
+    tg('answerCallbackQuery', {
+      callback_query_id: cb.id,
+      text: 'Отказ отправлен на ' + who.email + notionNote,
+      show_alert: !notionResult.ok
+    });
     if (kind === 'ds') {
       PropertiesService.getScriptProperties().deleteProperty('draft_' + cb.message.message_id);
     }
-    appendToMessage(cb, '\n\n❌ <b>Отказ отправлен</b> («' + esc(tpl.label) + '», ' + esc(cb.from.first_name || '') + ')');
+    appendToMessage(
+      cb,
+      '\n\n❌ <b>Отказ отправлен</b> («' + esc(tpl.label) + '», ' +
+        esc(cb.from.first_name || '') + ')' + esc(notionNote)
+    );
   }
 }
 
@@ -808,7 +852,9 @@ function handleDraftReply(msg) {
   var subject = (templates[0] && templates[0].subject) || DECLINE_MAIL_SUBJECT;
   sendDeclineMail(who.email, subject, msg.text);
   sheet.getRange(rowNum, SHEET_HEADERS.indexOf('Status') + 1).setValue('declined (с правкой)');
-  markNotionDeclined(sheet.getRange(rowNum, SHEET_HEADERS.indexOf('Notion URL') + 1).getValue());
+  var notionResult = markNotionDeclined(
+    sheet.getRange(rowNum, SHEET_HEADERS.indexOf('Notion URL') + 1).getValue()
+  );
   props.deleteProperty(propKey);
   tg('editMessageReplyMarkup', {
     chat_id: msg.chat.id,
@@ -818,7 +864,8 @@ function handleDraftReply(msg) {
   tg('sendMessage', {
     chat_id: msg.chat.id,
     reply_to_message_id: msg.message_id,
-    text: '❌ Отказ отправлен на ' + who.email + ' — вашим текстом.'
+    text: '❌ Отказ отправлен на ' + who.email + ' — вашим текстом.' +
+      (notionResult.ok ? ' Notion → Declined.' : ' ⚠️ Notion не обновлён: ' + notionResult.error)
   });
 }
 

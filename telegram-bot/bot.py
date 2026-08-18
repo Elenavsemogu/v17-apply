@@ -8,13 +8,11 @@ Telegram chat). Hard-fail MRR is not saved. Soft-fail is marked and submitted.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 import logging
 import os
 import re
-from pathlib import Path
 
 import httpx
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -25,8 +23,6 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
-    PersistenceInput,
-    PicklePersistence,
     filters,
 )
 
@@ -46,6 +42,7 @@ PROXY_URL = os.environ.get(
     "https://lightgray-oryx-237895.hostingersite.com/wp-json/srm/v1/v17",
 ).strip()
 CONTACT_FALLBACK = "deals@v17.vc"
+BOT_VERSION = "2026-08-18a"
 
 MRR_SOFT_B2C = 10000
 MRR_HARD_B2C = 5000
@@ -98,6 +95,9 @@ FREE_EMAIL_DOMAINS = {
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 DECK_MAX = 10 * 1024 * 1024
 
+GATE_ORDER = ["segment", "stage", "mrr", "market", "market_other", "gate"]
+SKIPPABLE = {"session", "notes"}
+
 # After the gate. Conditional steps are skipped in next_step/prev_step.
 APP_STEPS = [
     "company_name",
@@ -124,12 +124,6 @@ APP_STEPS = [
     "notes",
     "review",
 ]
-
-
-def persist_path() -> str:
-    if Path("/data").is_dir():
-        return "/data/bot_data.pickle"
-    return str(Path(__file__).resolve().parent / "bot_data.pickle")
 
 
 def data(context: ContextTypes.DEFAULT_TYPE) -> dict:
@@ -190,6 +184,148 @@ def skip_step(step: str, ans: dict) -> bool:
     return False
 
 
+def normalize_dependencies(prefix: str, ans: dict) -> None:
+    """Remove answers that became hidden after changing a multi-select."""
+    if prefix == "market" and "other" not in (ans.get("market") or []):
+        ans.pop("market_other", None)
+    if prefix == "verticals" and "Other" not in (ans.get("verticals") or []):
+        ans.pop("verticals_other", None)
+    if prefix == "interested_in" and not needs_raise(ans):
+        ans.pop("amount_raising", None)
+        ans.pop("post_money", None)
+
+
+def gate_incomplete_step(ans: dict) -> str | None:
+    """Where to send the user if the 4-question filter is not actually done."""
+    if not (ans.get("segment") or []):
+        return "segment"
+    if not ans.get("stage"):
+        return "stage"
+    if ans.get("mrr") is None:
+        return "mrr"
+    if not (ans.get("market") or []):
+        return "market"
+    if not skip_step("market_other", ans) and not (ans.get("market_other") or "").strip():
+        return "market_other"
+    return None
+
+
+def mrr_verdict(ans: dict) -> str:
+    """incomplete | hard | soft | pass — never treats a missing MRR as 0."""
+    if gate_incomplete_step(ans):
+        return "incomplete"
+    mrr = float(ans["mrr"])
+    if mrr < mrr_hard(ans):
+        return "hard"
+    if mrr < mrr_soft(ans):
+        return "soft"
+    return "pass"
+
+
+def is_answered(step: str, ans: dict) -> bool:
+    if step == "company_name":
+        return bool((ans.get("company_name") or "").strip())
+    if step == "website":
+        return bool(ans.get("website"))
+    if step == "interested_in":
+        return bool(ans.get("interested_in"))
+    if step in ("amount_raising", "post_money", "marketing_spend", "organic_pct"):
+        return ans.get(step) is not None
+    if step == "verticals":
+        return bool(ans.get("verticals"))
+    if step == "verticals_other":
+        return bool((ans.get("verticals_other") or "").strip())
+    if step == "problem":
+        return bool((ans.get("problem") or "").strip())
+    if step == "pitch_deck":
+        return bool(ans.get("pitch_deck") or ans.get("pitch_deck_file"))
+    if step == "icp":
+        return bool((ans.get("icp") or "").strip())
+    if step == "team":
+        return bool((ans.get("team") or "").strip())
+    if step == "retention":
+        return ans.get("ret30") is not None
+    if step == "cac_ltv":
+        return ans.get("cac") is not None
+    if step == "session":
+        return "session" in ans
+    if step == "payback":
+        return bool((ans.get("payback") or "").strip())
+    if step == "sub_model":
+        return bool((ans.get("sub_model") or "").strip())
+    if step == "mrr_growth":
+        return bool((ans.get("mrr_growth") or "").strip())
+    if step == "contact_name":
+        return bool((ans.get("contact_name") or "").strip())
+    if step == "contact_email":
+        return bool(ans.get("contact_email"))
+    if step == "notes":
+        return "notes" in ans
+    return False
+
+
+def infer_step(ans: dict) -> str:
+    missing = gate_incomplete_step(ans)
+    if missing:
+        return missing
+    if mrr_verdict(ans) == "hard":
+        return "hard_fail"
+    if not is_answered("company_name", ans):
+        return "gate"
+    for step in APP_STEPS:
+        if step == "review":
+            return "review"
+        if skip_step(step, ans):
+            continue
+        if not is_answered(step, ans):
+            return step
+    return "review"
+
+
+def resume_step(ans: dict, stored: str | None = None) -> str:
+    # Never resume into a decline unless the applicant actually typed MRR.
+    if stored == "hard_fail" and ans.get("mrr") is None:
+        return infer_step(ans)
+    known = set(GATE_ORDER) | set(APP_STEPS) | {"hard_fail"}
+    if stored and stored not in ("welcome", "thesis", "hard_fail", "gate") and stored in known:
+        if skip_step(stored, ans):
+            return next_step(stored, ans)
+        return stored
+    return infer_step(ans)
+
+
+def next_step(current: str, ans: dict) -> str:
+    if current in GATE_ORDER:
+        i = GATE_ORDER.index(current)
+        nxt = GATE_ORDER[i + 1] if i + 1 < len(GATE_ORDER) else "company_name"
+        while nxt not in ("gate", "company_name") and skip_step(nxt, ans):
+            i = GATE_ORDER.index(nxt)
+            nxt = GATE_ORDER[i + 1] if i + 1 < len(GATE_ORDER) else "company_name"
+        if nxt == "gate":
+            missing = gate_incomplete_step(ans)
+            if missing:
+                return missing
+        return nxt
+    if current in APP_STEPS:
+        return next_app_step(current, ans)
+    return "welcome"
+
+
+def submit_missing(ans: dict) -> str | None:
+    if mrr_verdict(ans) == "hard":
+        return "mrr"
+    if mrr_verdict(ans) == "incomplete":
+        return gate_incomplete_step(ans)
+    for step in APP_STEPS:
+        if step in ("review", "notes", "session"):
+            continue
+        if skip_step(step, ans):
+            continue
+        if not is_answered(step, ans):
+            return step
+    return None
+
+
 def next_app_step(current: str, ans: dict) -> str:
     if current not in APP_STEPS:
         current = APP_STEPS[0]
@@ -238,7 +374,13 @@ def nav_row(include_back: bool = True) -> list[InlineKeyboardButton]:
     return row
 
 
-def multi_keyboard(prefix: str, options: list[tuple[str, str]], selected: list[str], with_back: bool = True) -> InlineKeyboardMarkup:
+def multi_keyboard(
+    prefix: str,
+    options: list[tuple[str, str]],
+    selected: list[str],
+    with_back: bool = True,
+    with_next: bool = True,
+) -> InlineKeyboardMarkup:
     rows = []
     row: list[InlineKeyboardButton] = []
     for key, label in options:
@@ -249,7 +391,8 @@ def multi_keyboard(prefix: str, options: list[tuple[str, str]], selected: list[s
             row = []
     if row:
         rows.append(row)
-    rows.append([InlineKeyboardButton("Next →", callback_data=f"n:{prefix}")])
+    if with_next:
+        rows.append([InlineKeyboardButton("Next →", callback_data=f"n:{prefix}")])
     rows.append(nav_row(with_back))
     return InlineKeyboardMarkup(rows)
 
@@ -295,9 +438,9 @@ THESIS = (
 )
 
 HARD_DECLINE = (
-    "<b>Thank you for your interest in V17.</b> This is below our current "
-    "investment stage. Please reach out again once you've grown further — "
-    "we'd be glad to take another look"
+    "<b>Thank you for your interest in V17.</b> Current MRR is below the "
+    "minimum we look at right now. Please reach out again once you've grown "
+    "further — we'd be glad to take another look"
 )
 
 SOFT_DECLINE = (
@@ -359,8 +502,8 @@ async def ask_segment(update, context, ans, tmp):
     selected = tmp.setdefault("segment", list(ans.get("segment") or []))
     await send(
         update,
-        "Quick fit check\n\n1/4  Segment — tap all that apply, then Next",
-        multi_keyboard("segment", SEGMENTS, selected, with_back=False),
+        "Quick fit check\n\n1/4  Segment — tap to continue",
+        multi_keyboard("segment", SEGMENTS, selected, with_back=False, with_next=bool(selected)),
     )
 
 
@@ -373,11 +516,10 @@ async def ask_stage(update, context, ans, tmp):
 
 
 async def ask_mrr(update, context, ans, tmp):
-    floor = mrr_hard(ans)
     await send(
         update,
-        f"3/4  Current MRR, $\n\nA number is enough — 35k, 35 000 or $35,000 all work. "
-        f"Minimum we look at from {floor:,}".replace(",", " "),
+        "3/4  Current MRR, $\n\nPlease type a number — 35k, 35 000 or $35,000 all work. "
+        "This is not a decision yet, just the next question.",
         text_nav(),
     )
 
@@ -386,7 +528,8 @@ async def ask_market(update, context, ans, tmp):
     selected = tmp.setdefault("market", list(ans.get("market") or []))
     await send(
         update,
-        "4/4  Top user markets — tap all that apply, then Next",
+        "4/4  Top user markets — tap all that apply, then Next\n\n"
+        "If you choose Other, we'll ask you to type the market on the next screen.",
         multi_keyboard("market", MARKETS, selected),
     )
 
@@ -396,10 +539,13 @@ async def ask_market_other(update, context, ans, tmp):
 
 
 async def ask_gate(update, context, ans, tmp):
-    mrr = float(ans.get("mrr") or 0)
-    hard = mrr_hard(ans)
-    soft = mrr_soft(ans)
-    if mrr < hard:
+    missing = gate_incomplete_step(ans)
+    if missing:
+        data(context)["step"] = missing
+        await ask(update, context)
+        return
+    verdict = mrr_verdict(ans)
+    if verdict == "hard":
         ans["below_soft_threshold"] = False
         data(context)["step"] = "hard_fail"
         await send(
@@ -409,10 +555,11 @@ async def ask_gate(update, context, ans, tmp):
             html=True,
         )
         return
-    if mrr < soft:
+    if verdict == "soft":
         ans["below_soft_threshold"] = True
         label = "B2C" if is_b2c_only(ans) else "B2B"
-        text = SOFT_DECLINE.format(soft=f"{soft:,}", label=label)
+        soft = mrr_soft(ans)
+        text = SOFT_DECLINE.format(soft=f"{soft:,}".replace(",", " "), label=label)
         await send(
             update,
             text,
@@ -423,12 +570,16 @@ async def ask_gate(update, context, ans, tmp):
         )
         return
     ans["below_soft_threshold"] = False
+    tmp["fit_ok"] = True
     data(context)["step"] = "company_name"
-    await send(update, "Thanks — we're a fit on the basics. Let's get to the application")
     await ask(update, context)
 
 
 async def ask_hard_fail(update, context, ans, tmp):
+    if ans.get("mrr") is None:
+        data(context)["step"] = "mrr"
+        await ask(update, context)
+        return
     await send(
         update,
         HARD_DECLINE,
@@ -439,11 +590,16 @@ async def ask_hard_fail(update, context, ans, tmp):
 
 async def q(step: str, ans: dict, body: str) -> str:
     label = progress_label(step, ans)
-    return f"{label}\n\n{body}" if label else body
+    return f"{label}\n{body}" if label else body
 
 
 async def ask_company_name(update, context, ans, tmp):
-    await send(update, await q("company_name", ans, "Company name"), text_nav())
+    prefix = ""
+    if tmp.pop("fit_ok", None):
+        prefix = "Thanks — we're a fit on the basics.\n\n"
+    elif tmp.pop("fit_soft", None):
+        prefix = "We'll take this into the separate pool.\n\n"
+    await send(update, prefix + await q("company_name", ans, "Company name"), text_nav())
 
 
 async def ask_website(update, context, ans, tmp):
@@ -500,7 +656,7 @@ async def ask_pitch_deck(update, context, ans, tmp):
         await q(
             "pitch_deck",
             ans,
-            "Pitch deck — send a link or attach a file (PDF/PPT, up to 10 MB)",
+            "Pitch deck — send a link or attach a file (PDF or PPT, up to 10 MB)",
         ),
         text_nav(),
     )
@@ -577,7 +733,7 @@ async def ask_organic(update, context, ans, tmp):
 async def ask_mrr_growth(update, context, ans, tmp):
     await send(
         update,
-        await q("mrr_growth", ans, "MRR and avg MoM growth, % — e.g. $45k, +18%/mo"),
+        await q("mrr_growth", ans, "MRR and avg MoM growth, % — e.g. $45k, +18% per month"),
         text_nav(),
     )
 
@@ -585,7 +741,7 @@ async def ask_mrr_growth(update, context, ans, tmp):
 async def ask_spend(update, context, ans, tmp):
     await send(
         update,
-        await q("marketing_spend", ans, "Marketing spend, $/month"),
+        await q("marketing_spend", ans, "Monthly marketing spend, $"),
         text_nav(),
     )
 
@@ -702,19 +858,6 @@ def reset_app(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    store = data(context)
-    ans = store["answers"]
-    if ans.get("company_name") or ans.get("segment"):
-        store["step"] = "welcome"
-        await send(
-            update,
-            "You already have an application in progress. Continue or start over?",
-            InlineKeyboardMarkup([
-                [InlineKeyboardButton("Continue", callback_data="nav:continue_saved")],
-                [InlineKeyboardButton("Start over", callback_data="nav:restart")],
-            ]),
-        )
-        return
     reset_app(context)
     data(context)["step"] = "welcome"
     await ask(update, context)
@@ -725,28 +868,10 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await send(update, "Cleared. Send /start when you want to apply again")
 
 
-def after_gate_or(step: str, ans: dict) -> str:
-    if skip_step(step, ans):
-        return next_app_step(step, ans)
-    return step
-
-
-async def go_next(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def go_next(update: Update, context: ContextTypes.DEFAULT_TYPE, from_step: str | None = None) -> None:
     store = data(context)
-    step = store["step"]
-    ans = store["answers"]
-    order = ["segment", "stage", "mrr", "market", "market_other", "gate"]
-    if step in order:
-        i = order.index(step)
-        nxt = order[i + 1] if i + 1 < len(order) else "company_name"
-        while nxt not in ("gate", "company_name") and skip_step(nxt, ans):
-            i = order.index(nxt)
-            nxt = order[i + 1] if i + 1 < len(order) else "company_name"
-        store["step"] = nxt
-    elif step in APP_STEPS:
-        store["step"] = next_app_step(step, ans)
-    else:
-        store["step"] = "welcome"
+    step = from_step or store["step"]
+    store["step"] = next_step(step, store["answers"])
     await ask(update, context)
 
 
@@ -776,11 +901,30 @@ async def go_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
     raw = query.data or ""
     store = data(context)
     ans = store["answers"]
     tmp = store["tmp"]
+    step = store["step"]
+
+    if raw.startswith("n:"):
+        prefix = raw.split(":", 1)[1]
+        selected = tmp.get(prefix) or ans.get(prefix) or []
+        if not selected:
+            await query.answer("Pick at least one", show_alert=True)
+            return
+        if prefix != step:
+            await query.answer()
+            return
+        await query.answer()
+        ans[prefix] = list(selected)
+        await go_next(update, context, from_step=prefix)
+        return
+
+    toast = None
+    if raw == "t:market:other" and step == "market":
+        toast = "Other selected. Tap Next and we'll ask you to type the market."
+    await query.answer(toast)
 
     if raw == "nav:home":
         store["step"] = "welcome"
@@ -791,7 +935,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await ask(update, context)
         return
     if raw == "nav:start":
-        store["step"] = "segment"
+        reset_app(context)
+        data(context)["step"] = "segment"
         await ask(update, context)
         return
     if raw == "nav:restart":
@@ -803,16 +948,17 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await go_back(update, context)
         return
     if raw == "nav:skip":
-        step = store["step"]
-        if step == "session":
-            ans["session"] = ""
-        if step == "notes":
-            ans["notes"] = ""
+        if step not in SKIPPABLE:
+            return
+        ans[step] = ""
         await go_next(update, context)
         return
     if raw == "nav:continue":
+        if step != "gate" or not ans.get("below_soft_threshold"):
+            await ask(update, context)
+            return
+        tmp["fit_soft"] = True
         store["step"] = "company_name"
-        await send(update, "Thanks — we'll take the application into the separate pool")
         await ask(update, context)
         return
     if raw == "nav:stop":
@@ -820,40 +966,40 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await send(update, "Understood. Send /start if you want to try again later")
         return
     if raw == "nav:continue_saved":
-        step = store.get("step") or "segment"
-        if step in ("welcome", "thesis"):
-            store["step"] = "segment" if not ans.get("segment") else step
+        store["step"] = resume_step(ans, store.get("step"))
         await ask(update, context)
         return
     if raw == "nav:submit":
+        if step != "review":
+            return
         await submit_application(update, context)
         return
 
     if raw.startswith("t:"):
         _, prefix, key = raw.split(":", 2)
-        selected = tmp.setdefault(prefix, list(ans.get(prefix) or []))
-        if key in selected:
-            selected.remove(key)
-        else:
-            selected.append(key)
-        ans[prefix] = list(selected)
-        await ask(update, context)
-        return
-
-    if raw.startswith("n:"):
-        prefix = raw.split(":", 1)[1]
-        selected = tmp.get(prefix) or ans.get(prefix) or []
-        if not selected:
-            await query.answer("Pick at least one", show_alert=True)
+        if prefix != step:
             return
+        selected = tmp.setdefault(prefix, list(ans.get(prefix) or []))
+        adding = key not in selected
+        if adding:
+            selected.append(key)
+        else:
+            selected.remove(key)
         ans[prefix] = list(selected)
-        await go_next(update, context)
+        normalize_dependencies(prefix, ans)
+        # Segment: one tap is enough — go forward. Extra segments: Back, tap another.
+        if prefix == "segment" and adding and selected:
+            await go_next(update, context, from_step="segment")
+            return
+        await ask(update, context)
         return
 
     if raw.startswith("s:"):
         _, prefix, key = raw.split(":", 2)
+        if prefix != step:
+            return
         ans[prefix] = key
-        await go_next(update, context)
+        await go_next(update, context, from_step=prefix)
         return
 
 
@@ -933,6 +1079,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if step == "company_name":
+        if len(text) < 1:
+            await send(update, "Please send the company name", text_nav())
+            return
         ans["company_name"] = text
         await go_next(update, context)
         return
@@ -948,8 +1097,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if step == "amount_raising":
         val = parse_money(text)
-        if val is None:
-            await send(update, "Please send a number", text_nav())
+        if val is None or val < 0:
+            await send(update, "Please send a non-negative number", text_nav())
             return
         ans["amount_raising"] = val
         await go_next(update, context)
@@ -957,19 +1106,25 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if step == "post_money":
         val = parse_money(text)
-        if val is None:
-            await send(update, "Please send a number", text_nav())
+        if val is None or val < 0:
+            await send(update, "Please send a non-negative number", text_nav())
             return
         ans["post_money"] = val
         await go_next(update, context)
         return
 
     if step == "verticals_other":
+        if len(text) < 2:
+            await send(update, "Please list the vertical(s)", text_nav())
+            return
         ans["verticals_other"] = text
         await go_next(update, context)
         return
 
     if step == "problem":
+        if len(text) < 2:
+            await send(update, "A couple of sentences, please", text_nav())
+            return
         ans["problem"] = text
         await go_next(update, context)
         return
@@ -977,7 +1132,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if step == "pitch_deck":
         url = normalize_website(text)
         if not url:
-            await send(update, "Send a link or attach a PDF/PPT file", text_nav())
+            await send(update, "Send a link or attach a PDF or PPT file", text_nav())
             return
         ans["pitch_deck"] = url
         ans.pop("pitch_deck_file", None)
@@ -985,19 +1140,25 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if step == "icp":
+        if len(text) < 2:
+            await send(update, "Please tell us who pays", text_nav())
+            return
         ans["icp"] = text
         await go_next(update, context)
         return
 
     if step == "team":
+        if len(text) < 2:
+            await send(update, "Please tell us about the team", text_nav())
+            return
         ans["team"] = text
         await go_next(update, context)
         return
 
     if step == "retention":
         nums = parse_three_numbers(text)
-        if not nums:
-            await send(update, "Please send three numbers — e.g. 40 25 18", text_nav())
+        if not nums or any(v < 0 or v > 100 for v in nums):
+            await send(update, "Please send three percentages from 0 to 100 — e.g. 40 25 18", text_nav())
             return
         ans["ret30"], ans["ret60"], ans["ret90"] = nums
         await go_next(update, context)
@@ -1005,8 +1166,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if step == "cac_ltv":
         nums = parse_two_numbers(text)
-        if not nums:
-            await send(update, "Please send two numbers — CAC then LTV, e.g. 40 180", text_nav())
+        if not nums or any(v < 0 for v in nums):
+            await send(update, "Please send two non-negative numbers — CAC then LTV, e.g. 40 180", text_nav())
             return
         ans["cac"], ans["ltv"] = nums
         await go_next(update, context)
@@ -1014,19 +1175,25 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if step == "session":
         val = parse_money(text)
-        if val is None:
-            await send(update, "A number, or tap Skip", text_nav(skip=True))
+        if val is None or val < 0:
+            await send(update, "A non-negative number, or tap Skip", text_nav(skip=True))
             return
         ans["session"] = val
         await go_next(update, context)
         return
 
     if step == "payback":
+        if len(text) < 2:
+            await send(update, "Please describe payback", text_nav())
+            return
         ans["payback"] = text
         await go_next(update, context)
         return
 
     if step == "sub_model":
+        if len(text) < 2:
+            await send(update, "Please describe the model", text_nav())
+            return
         ans["sub_model"] = text
         await go_next(update, context)
         return
@@ -1041,20 +1208,26 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if step == "mrr_growth":
+        if len(text) < 2:
+            await send(update, "Please send MRR and growth", text_nav())
+            return
         ans["mrr_growth"] = text
         await go_next(update, context)
         return
 
     if step == "marketing_spend":
         val = parse_money(text)
-        if val is None:
-            await send(update, "Please send a number", text_nav())
+        if val is None or val < 0:
+            await send(update, "Please send a non-negative number", text_nav())
             return
         ans["marketing_spend"] = val
         await go_next(update, context)
         return
 
     if step == "contact_name":
+        if len(text) < 1:
+            await send(update, "Please send your name", text_nav())
+            return
         ans["contact_name"] = text
         await go_next(update, context)
         return
@@ -1098,6 +1271,9 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         log.exception("deck download failed: %s", exc)
         await send(update, "Could not download the file — try a link instead", text_nav())
         return
+    if len(raw) > DECK_MAX:
+        await send(update, "File is over 10 MB — send a smaller file or a link", text_nav())
+        return
     store["answers"]["pitch_deck_file"] = {
         "name": doc.file_name or "pitch-deck",
         "mime": doc.mime_type or "application/octet-stream",
@@ -1105,6 +1281,25 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     }
     store["answers"]["pitch_deck"] = store["answers"].get("pitch_deck") or ""
     await go_next(update, context)
+
+
+async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    store = data(context)
+    if store["step"] == "pitch_deck":
+        await send(
+            update,
+            "Please send a PDF or PPT file, or a link — photos aren't accepted",
+            text_nav(),
+        )
+        return
+    await send(update, "Please use the buttons above, or send /start")
+
+
+def validate_submit_result(result: object) -> dict:
+    if not isinstance(result, dict) or result.get("ok") is not True:
+        error = result.get("error") if isinstance(result, dict) else None
+        raise RuntimeError(error or "backend rejected the application")
+    return result
 
 
 async def post_payload(payload: dict) -> None:
@@ -1115,18 +1310,29 @@ async def post_payload(payload: dict) -> None:
         try:
             resp = await client.post(SUBMIT_URL, content=body, headers=headers)
             resp.raise_for_status()
+            result = validate_submit_result(resp.json())
+            if result.get("telegram_notified") is False:
+                log.error("application saved but internal Telegram notification failed")
             return
+        except RuntimeError:
+            raise
         except Exception as exc:
             log.warning("primary submit failed: %s", exc)
         resp = await client.post(PROXY_URL, content=body, headers=headers)
         resp.raise_for_status()
+        result = validate_submit_result(resp.json())
+        if result.get("telegram_notified") is False:
+            log.error("application saved but internal Telegram notification failed")
 
 
 async def submit_application(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ans = answers(context)
     user = update.effective_user
-    if not ans.get("company_name") or not ans.get("contact_email"):
-        await send(update, "Something is missing — please go back and finish the form")
+    missing = submit_missing(ans)
+    if missing:
+        data(context)["step"] = missing
+        await send(update, "Something is missing — let's finish that field")
+        await ask(update, context)
         return
     payload = {
         "segment": ans.get("segment") or [],
@@ -1217,28 +1423,42 @@ def main() -> None:
     if not TOKEN:
         raise SystemExit("TELEGRAM_TOKEN is not set")
 
-    persistence = PicklePersistence(
-        filepath=persist_path(),
-        store_data=PersistenceInput(bot_data=False, chat_data=False, user_data=True, callback_data=False),
-    )
     app = (
         Application.builder()
         .token(TOKEN)
-        .persistence(persistence)
-        .concurrent_updates(True)
+        .concurrent_updates(False)
         .build()
     )
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.Document.ALL, on_document))
+    app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+
+    async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        error = context.error
+        if error:
+            log.error(
+                "unhandled update error",
+                exc_info=(type(error), error, error.__traceback__),
+            )
+        else:
+            log.error("unhandled update error")
+        if isinstance(update, Update) and update.effective_message:
+            try:
+                await update.effective_message.reply_text(
+                    "Something went wrong. Please send /start and try again."
+                )
+            except Exception:
+                pass
 
     async def on_boot(application: Application) -> None:
         await load_remote_config()
-        log.info("V17 apply bot started, persistence=%s", persist_path())
+        log.info("V17 apply bot started version=%s", BOT_VERSION)
 
     app.post_init = on_boot
+    app.add_error_handler(on_error)
     log.info("polling")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 

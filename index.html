@@ -110,7 +110,7 @@
   .seg-line{display:block}
   .seg-line + .seg-line{margin-top:4px}
   .seg-line b{color:var(--capital);font-weight:600}
-  .mrr-amt{color:var(--ink);font-weight:700}
+  .mrr-note{color:var(--ink);font-weight:400}
   .back-link{
     display:inline-block;
     margin-bottom:16px;
@@ -345,8 +345,8 @@
     <div class="thesis-line">
       <span class="thesis-tag">MRR</span>
           <span>
-            <span class="seg-line"><b>B2C</b>: <span class="mrr-amt">from $10k MRR</span></span>
-            <span class="seg-line"><b>B2B</b>: <span class="mrr-amt">from $30k MRR</span></span>
+            <span class="seg-line"><b>B2C: from $10k</b><span class="mrr-note"> — MRR</span></span>
+            <span class="seg-line"><b>B2B: from $30k</b><span class="mrr-note"> — MRR</span></span>
           </span>
     </div>
     <div class="thesis-line"><span class="thesis-tag">Markets</span><span>Global, US, Europe</span></div>
@@ -742,7 +742,15 @@ function updateOtherInputs(){
 function updateRaiseVisibility(){
   const sel = data.interested_in || [];
   const show = sel.indexOf('investment') !== -1 || sel.indexOf('media') !== -1;
-  document.getElementById('raiseWrap').style.display = show ? 'grid' : 'none';
+  const wrap = document.getElementById('raiseWrap');
+  wrap.style.display = show ? 'grid' : 'none';
+  if(!show){
+    ['amount_raising','post_money'].forEach(function(id){
+      const el = document.getElementById(id);
+      if(el){ el.value = ''; el.classList.remove('field-invalid'); }
+      delete data[id];
+    });
+  }
 }
 
 const FREE_EMAIL_DOMAINS = ['gmail.com','yahoo.com','hotmail.com','outlook.com','icloud.com','aol.com','mail.ru','yandex.ru','yandex.com','protonmail.com','pm.me','gmx.com','live.com','msn.com','inbox.ru','bk.ru','list.ru','yahoo.co.uk','googlemail.com'];
@@ -807,10 +815,14 @@ function validateDeck(){
   const linkEl = document.getElementById('pitch_deck');
   const fileEl = document.getElementById('pitch_deck_file');
   const errSlot = document.getElementById('deckError');
-  const ok = (linkEl.value || '').trim() !== '' || !!data.pitch_deck_file;
+  const hasLink = (linkEl.value || '').trim() !== '';
+  const validLink = hasLink && linkEl.checkValidity();
+  const ok = validLink || !!data.pitch_deck_file;
   linkEl.classList.toggle('field-invalid', !ok);
   fileEl.classList.toggle('field-invalid', !ok);
-  errSlot.innerHTML = ok ? '' : '<p style="font-size:12px;color:var(--warn);margin-top:5px">Please add a pitch deck — a link or a file</p>';
+  errSlot.innerHTML = ok ? '' : '<p style="font-size:12px;color:var(--warn);margin-top:5px">' +
+    (hasLink ? 'Please enter a valid pitch deck URL or attach a file' : 'Please add a pitch deck — a link or a file') +
+    '</p>';
   return ok;
 }
 document.getElementById('pitch_deck').addEventListener('input', function(){
@@ -852,8 +864,9 @@ function validateStep(i){
     const fieldWrap = el.closest('.field');
     if(fieldWrap && fieldWrap.offsetParent === null) return;
     const filled = (el.value || '').trim() !== '';
-    el.classList.toggle('field-invalid', !filled);
-    if(!filled){
+    const validValue = filled && el.checkValidity();
+    el.classList.toggle('field-invalid', !validValue);
+    if(!validValue){
       setFieldMiss(el, true);
       if(!firstInvalid) firstInvalid = el;
       valid = false;
@@ -896,6 +909,8 @@ function evaluateGate(){
   const slot = document.getElementById('declineSlot');
   const mrr = moneyValue('mrr');
   const seg = data.segment || [];
+  const mrrEl = document.getElementById('mrr');
+  const mrrEntered = !!(mrrEl && (mrrEl.value || '').replace(/[^0-9.]/g, ''));
 
   softFail = false;
   hardFail = false;
@@ -903,10 +918,9 @@ function evaluateGate(){
   /* Подсказка в поле MRR — минимальный (жёсткий) порог выбранного сегмента:
      B2C — 5,000, B2B и B2B2C — 15,000. Чтобы человек сразу видел ориентир
      (просьба Леры 14.08). */
-  const mrrEl = document.getElementById('mrr');
   if(mrrEl) mrrEl.placeholder = mrrHard().toLocaleString('en-US');
 
-  if(seg.length && mrr){
+  if(seg.length && mrrEntered){
     if(mrr < mrrHard()) hardFail = true;
     else if(mrr < mrrSoft()) softFail = true;
   }
@@ -914,7 +928,7 @@ function evaluateGate(){
   if(hardFail){
     /* Ниже hard-порога: финальный отказ, шаг 2 не открывается,
        данные никуда не сохраняются (кнопки Next нет). */
-    slot.innerHTML = '<div class="decline-box"><b>Thank you for your interest in V17.</b> This is below our current investment stage. Please reach out again once you\'ve grown further — we\'d be glad to take another look</div>';
+    slot.innerHTML = '<div class="decline-box"><b>Thank you for your interest in V17.</b> Current MRR is below the minimum we look at right now. Please reach out again once you\'ve grown further — we\'d be glad to take another look</div>';
   } else if(softFail){
     /* Между hard и soft: предупреждаем, но пропускаем дальше — заявка
        попадёт в отдельный пул (cohort financing / пересмотр). */
@@ -1067,11 +1081,15 @@ async function submitForm(){
 
   try{
     if(SUBMIT_URL){
-      await apiFetch('', {
+      const resp = await apiFetch('', {
         method: 'POST',
         headers: {'Content-Type': 'text/plain;charset=utf-8'},
         body: JSON.stringify(payload)
       });
+      const result = await resp.json();
+      if(!result || result.ok !== true){
+        throw new Error((result && result.error) || 'The server rejected the application');
+      }
     } else {
       console.log('SUBMIT_URL not configured — payload:', payload);
     }

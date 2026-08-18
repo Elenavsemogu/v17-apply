@@ -1,3 +1,6 @@
+.DS_Store
+__pycache__/
+*.pyc
 google-apps-script.CONFIGURED.js
 telegram-bot/.env
 telegram-bot/.venv/

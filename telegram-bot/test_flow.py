@@ -1,0 +1,322 @@
+"""Regression tests for bot step machine — no Telegram needed."""
+
+from __future__ import annotations
+
+import sys
+import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+for name in (
+    "telegram",
+    "telegram.constants",
+    "telegram.ext",
+    "httpx",
+):
+    sys.modules.setdefault(name, MagicMock())
+
+import bot
+
+
+def gate(**kwargs):
+    base = {
+        "segment": ["b2c"],
+        "stage": "seed",
+        "mrr": 20000,
+        "market": ["global"],
+    }
+    base.update(kwargs)
+    return base
+
+
+class FakeQuery:
+    def __init__(self, data):
+        self.data = data
+        self.answers = []
+
+    async def answer(self, text=None, **kwargs):
+        self.answers.append((text, kwargs))
+
+
+def callback_update(data):
+    query = FakeQuery(data)
+    return SimpleNamespace(callback_query=query, effective_message=MagicMock()), query
+
+
+def text_update(text):
+    return SimpleNamespace(
+        message=SimpleNamespace(text=text),
+        callback_query=None,
+        effective_message=MagicMock(),
+    )
+
+
+def context():
+    return SimpleNamespace(user_data={})
+
+
+class ParseMoney(unittest.TestCase):
+    def test_formats(self):
+        self.assertEqual(bot.parse_money("35k"), 35000)
+        self.assertEqual(bot.parse_money("$35,000"), 35000)
+        self.assertEqual(bot.parse_money("35 000"), 35000)
+        self.assertEqual(bot.parse_money("1.2m"), 1_200_000)
+        self.assertIsNone(bot.parse_money(""))
+        self.assertIsNone(bot.parse_money("Seed"))
+        self.assertIsNone(bot.parse_money("Series A"))
+
+
+class Gate(unittest.TestCase):
+    def test_missing_mrr_is_not_zero(self):
+        ans = {"segment": ["b2c"], "stage": "seed"}
+        self.assertEqual(bot.gate_incomplete_step(ans), "mrr")
+        self.assertEqual(bot.mrr_verdict(ans), "incomplete")
+
+    def test_elena_bug_stage_does_not_jump_to_gate(self):
+        ans = {"segment": ["b2c"], "stage": "seed"}
+        self.assertEqual(bot.next_step("segment", ans), "stage")
+        self.assertEqual(bot.next_step("stage", ans), "mrr")
+        self.assertNotEqual(bot.next_step("stage", ans), "gate")
+
+    def test_cannot_reach_gate_without_mrr(self):
+        ans = {"segment": ["b2b"], "stage": "seriesa", "market": ["usa"]}
+        self.assertEqual(bot.next_step("market", ans), "mrr")
+        self.assertEqual(bot.mrr_verdict(ans), "incomplete")
+
+    def test_cannot_reach_gate_without_market(self):
+        ans = {"segment": ["b2c"], "stage": "seed", "mrr": 20000}
+        self.assertEqual(bot.next_step("mrr", ans), "market")
+        self.assertEqual(bot.gate_incomplete_step(ans), "market")
+
+    def test_other_market_asks_followup(self):
+        ans = gate(market=["other"])
+        self.assertEqual(bot.next_step("market", ans), "market_other")
+        self.assertEqual(bot.gate_incomplete_step(ans), "market_other")
+        ans["market_other"] = "India"
+        self.assertEqual(bot.next_step("market_other", ans), "gate")
+        self.assertIsNone(bot.gate_incomplete_step(ans))
+
+    def test_global_skips_other(self):
+        ans = gate()
+        self.assertEqual(bot.next_step("market", ans), "gate")
+
+    def test_b2c_thresholds(self):
+        self.assertEqual(bot.mrr_verdict(gate(mrr=4000)), "hard")
+        self.assertEqual(bot.mrr_verdict(gate(mrr=7000)), "soft")
+        self.assertEqual(bot.mrr_verdict(gate(mrr=10000)), "pass")
+
+    def test_b2b_thresholds(self):
+        ans = gate(segment=["b2b"], mrr=20000)
+        self.assertEqual(bot.mrr_verdict(ans), "soft")
+        ans["mrr"] = 10000
+        self.assertEqual(bot.mrr_verdict(ans), "hard")
+        ans["mrr"] = 30000
+        self.assertEqual(bot.mrr_verdict(ans), "pass")
+
+    def test_b2b2c_uses_strict_threshold(self):
+        ans = gate(segment=["b2b2c"], mrr=12000)
+        self.assertEqual(bot.mrr_verdict(ans), "hard")
+
+    def test_typed_zero_is_hard_not_incomplete(self):
+        self.assertEqual(bot.mrr_verdict(gate(mrr=0)), "hard")
+
+    def test_zero_without_other_answers_is_incomplete(self):
+        self.assertEqual(bot.mrr_verdict({"mrr": 0}), "incomplete")
+
+
+class ApplicationPath(unittest.TestCase):
+    def test_cohort_skips_raise_fields(self):
+        ans = gate(interested_in=["cohort"])
+        self.assertEqual(bot.next_step("interested_in", ans), "verticals")
+        self.assertTrue(bot.skip_step("amount_raising", ans))
+        self.assertTrue(bot.skip_step("post_money", ans))
+
+    def test_investment_asks_raise_fields(self):
+        ans = gate(interested_in=["investment"])
+        self.assertEqual(bot.next_step("interested_in", ans), "amount_raising")
+        self.assertEqual(bot.next_step("amount_raising", ans), "post_money")
+        self.assertEqual(bot.next_step("post_money", ans), "verticals")
+
+    def test_media_asks_raise_fields(self):
+        ans = gate(interested_in=["media"])
+        self.assertFalse(bot.skip_step("amount_raising", ans))
+
+    def test_other_vertical_followup(self):
+        ans = gate(verticals=["FinTech"])
+        self.assertTrue(bot.skip_step("verticals_other", ans))
+        ans["verticals"] = ["Other"]
+        self.assertFalse(bot.skip_step("verticals_other", ans))
+        self.assertEqual(bot.next_step("verticals", ans), "verticals_other")
+
+    def test_hidden_answers_are_removed_when_choice_changes(self):
+        ans = {
+            "market": ["global"],
+            "market_other": "India",
+            "verticals": ["FinTech"],
+            "verticals_other": "SpaceTech",
+            "interested_in": ["cohort"],
+            "amount_raising": 500000,
+            "post_money": 7000000,
+        }
+        bot.normalize_dependencies("market", ans)
+        bot.normalize_dependencies("verticals", ans)
+        bot.normalize_dependencies("interested_in", ans)
+        self.assertNotIn("market_other", ans)
+        self.assertNotIn("verticals_other", ans)
+        self.assertNotIn("amount_raising", ans)
+        self.assertNotIn("post_money", ans)
+
+    def test_other_answers_remain_while_other_is_selected(self):
+        ans = {
+            "market": ["other"],
+            "market_other": "India",
+            "verticals": ["Other"],
+            "verticals_other": "SpaceTech",
+        }
+        bot.normalize_dependencies("market", ans)
+        bot.normalize_dependencies("verticals", ans)
+        self.assertEqual(ans["market_other"], "India")
+        self.assertEqual(ans["verticals_other"], "SpaceTech")
+
+    def test_resume_does_not_use_welcome_when_answers_exist(self):
+        ans = {"segment": ["b2c"], "stage": "seed"}
+        self.assertEqual(bot.resume_step(ans, "welcome"), "mrr")
+        self.assertEqual(bot.resume_step(ans, "thesis"), "mrr")
+
+    def test_resume_hard_fail_without_mrr_asks_mrr(self):
+        ans = {"segment": ["b2c"], "stage": "seed"}
+        self.assertEqual(bot.resume_step(ans, "hard_fail"), "mrr")
+        self.assertEqual(bot.resume_step(ans, "gate"), "mrr")
+
+    def test_resume_keeps_real_step(self):
+        ans = gate(company_name="Acme")
+        self.assertEqual(bot.resume_step(ans, "website"), "website")
+
+    def test_infer_hard_fail(self):
+        self.assertEqual(bot.infer_step(gate(mrr=1000)), "hard_fail")
+
+    def test_infer_gate_when_filter_done(self):
+        self.assertEqual(bot.infer_step(gate()), "gate")
+
+    def test_submit_rejects_incomplete(self):
+        self.assertEqual(bot.submit_missing(gate()), "company_name")
+        self.assertEqual(bot.submit_missing({"company_name": "X"}), "segment")
+
+    def test_submit_hard_mrr_blocked(self):
+        ans = gate(mrr=1000, company_name="X", contact_email="a@co.com")
+        self.assertEqual(bot.submit_missing(ans), "mrr")
+
+    def test_complete_cohort_application_can_submit(self):
+        ans = gate(
+            company_name="Acme",
+            website="https://acme.test",
+            interested_in=["cohort"],
+            verticals=["FinTech"],
+            problem="A real problem",
+            pitch_deck="https://acme.test/deck",
+            icp="Businesses",
+            team="Two founders",
+            ret30=40,
+            ret60=25,
+            ret90=18,
+            cac=40,
+            ltv=180,
+            payback="Six months",
+            sub_model="Subscription",
+            organic_pct=20,
+            mrr_growth="$20k, 10% per month",
+            marketing_spend=5000,
+            contact_name="Alex",
+            contact_email="alex@acme.test",
+        )
+        self.assertIsNone(bot.submit_missing(ans))
+
+
+class Email(unittest.TestCase):
+    def test_free_inbox_rejected(self):
+        self.assertIsNotNone(bot.validate_email("founder@gmail.com"))
+        self.assertIsNone(bot.validate_email("founder@startup.io"))
+
+
+class BackendResponse(unittest.TestCase):
+    def test_success_response_is_accepted(self):
+        result = {"ok": True, "telegram_notified": True}
+        self.assertIs(bot.validate_submit_result(result), result)
+
+    def test_http_200_error_response_is_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, "sheet failed"):
+            bot.validate_submit_result({"ok": False, "error": "sheet failed"})
+
+    def test_non_json_shape_is_rejected(self):
+        with self.assertRaises(RuntimeError):
+            bot.validate_submit_result(None)
+
+
+class HandlerFlow(unittest.IsolatedAsyncioTestCase):
+    async def test_segment_stage_mrr_market_order(self):
+        ctx = context()
+        bot.data(ctx)["step"] = "segment"
+        with patch.object(bot, "send", new=AsyncMock()):
+            update, _ = callback_update("t:segment:b2c")
+            await bot.on_callback(update, ctx)
+            self.assertEqual(bot.data(ctx)["step"], "stage")
+
+            update, _ = callback_update("s:stage:seed")
+            await bot.on_callback(update, ctx)
+            self.assertEqual(bot.data(ctx)["step"], "mrr")
+            self.assertNotIn("mrr", bot.answers(ctx))
+
+            await bot.on_text(text_update("15 000"), ctx)
+            self.assertEqual(bot.data(ctx)["step"], "market")
+            self.assertEqual(bot.answers(ctx)["mrr"], 15000)
+
+    async def test_market_other_explains_then_asks_for_text(self):
+        ctx = context()
+        store = bot.data(ctx)
+        store["step"] = "market"
+        store["answers"].update(segment=["b2c"], stage="seed", mrr=15000)
+        with patch.object(bot, "send", new=AsyncMock()):
+            update, query = callback_update("t:market:other")
+            await bot.on_callback(update, ctx)
+            self.assertEqual(store["step"], "market")
+            self.assertIn("Other selected", query.answers[-1][0])
+
+            update, _ = callback_update("n:market")
+            await bot.on_callback(update, ctx)
+            self.assertEqual(store["step"], "market_other")
+
+            await bot.on_text(text_update("India"), ctx)
+            self.assertEqual(store["step"], "company_name")
+            self.assertEqual(store["answers"]["market_other"], "India")
+
+    async def test_soft_gate_continues_only_after_confirmation(self):
+        ctx = context()
+        store = bot.data(ctx)
+        store["step"] = "market"
+        store["answers"].update(segment=["b2c"], stage="seed", mrr=7000)
+        with patch.object(bot, "send", new=AsyncMock()):
+            update, _ = callback_update("t:market:global")
+            await bot.on_callback(update, ctx)
+            update, _ = callback_update("n:market")
+            await bot.on_callback(update, ctx)
+            self.assertEqual(store["step"], "gate")
+            self.assertTrue(store["answers"]["below_soft_threshold"])
+
+            update, _ = callback_update("nav:continue")
+            await bot.on_callback(update, ctx)
+            self.assertEqual(store["step"], "company_name")
+
+    async def test_stale_stage_button_cannot_rewind_application(self):
+        ctx = context()
+        store = bot.data(ctx)
+        store["step"] = "company_name"
+        store["answers"].update(segment=["b2c"], stage="seed", mrr=15000, market=["global"])
+        with patch.object(bot, "send", new=AsyncMock()):
+            update, _ = callback_update("s:stage:seriesa")
+            await bot.on_callback(update, ctx)
+        self.assertEqual(store["step"], "company_name")
+        self.assertEqual(store["answers"]["stage"], "seed")
+
+
+if __name__ == "__main__":
+    unittest.main()
