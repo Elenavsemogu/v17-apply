@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 from types import SimpleNamespace
@@ -33,6 +34,7 @@ class FakeQuery:
     def __init__(self, data):
         self.data = data
         self.answers = []
+        self.message = SimpleNamespace(reply_text=AsyncMock())
 
     async def answer(self, text=None, **kwargs):
         self.answers.append((text, kwargs))
@@ -40,14 +42,15 @@ class FakeQuery:
 
 def callback_update(data):
     query = FakeQuery(data)
-    return SimpleNamespace(callback_query=query, effective_message=MagicMock()), query
+    return SimpleNamespace(callback_query=query, effective_message=query.message), query
 
 
 def text_update(text):
+    msg = SimpleNamespace(text=text, reply_text=AsyncMock())
     return SimpleNamespace(
-        message=SimpleNamespace(text=text),
+        message=msg,
         callback_query=None,
-        effective_message=MagicMock(),
+        effective_message=msg,
     )
 
 
@@ -270,24 +273,36 @@ class HandlerFlow(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(bot.data(ctx)["step"], "market")
             self.assertEqual(bot.answers(ctx)["mrr"], 15000)
 
-    async def test_market_other_explains_then_asks_for_text(self):
+    async def test_market_other_opens_text_field(self):
         ctx = context()
         store = bot.data(ctx)
         store["step"] = "market"
         store["answers"].update(segment=["b2c"], stage="seed", mrr=15000)
-        with patch.object(bot, "send", new=AsyncMock()):
+        with patch.object(bot, "send", new=AsyncMock()), patch.object(
+            bot, "send_text_question", new=AsyncMock()
+        ):
             update, query = callback_update("t:market:other")
             await bot.on_callback(update, ctx)
-            self.assertEqual(store["step"], "market")
-            self.assertIn("Other selected", query.answers[-1][0])
-
-            update, _ = callback_update("n:market")
-            await bot.on_callback(update, ctx)
             self.assertEqual(store["step"], "market_other")
+            self.assertIn("other", store["answers"]["market"])
+            self.assertIn("Other selected", query.answers[-1][0])
 
             await bot.on_text(text_update("India"), ctx)
             self.assertEqual(store["step"], "company_name")
             self.assertEqual(store["answers"]["market_other"], "India")
+
+    async def test_other_vertical_opens_text_field(self):
+        ctx = context()
+        store = bot.data(ctx)
+        store["step"] = "verticals"
+        store["answers"].update(gate(company_name="Acme", website="https://acme.test", interested_in=["cohort"]))
+        with patch.object(bot, "send", new=AsyncMock()), patch.object(
+            bot, "send_text_question", new=AsyncMock()
+        ):
+            update, _ = callback_update("t:verticals:Other")
+            await bot.on_callback(update, ctx)
+            self.assertEqual(store["step"], "verticals_other")
+            self.assertIn("Other", store["answers"]["verticals"])
 
     async def test_soft_gate_continues_only_after_confirmation(self):
         ctx = context()
@@ -316,6 +331,51 @@ class HandlerFlow(unittest.IsolatedAsyncioTestCase):
             await bot.on_callback(update, ctx)
         self.assertEqual(store["step"], "company_name")
         self.assertEqual(store["answers"]["stage"], "seed")
+
+    async def test_start_resumes_unfinished_application(self):
+        ctx = context()
+        store = bot.data(ctx)
+        store["step"] = "company_name"
+        store["answers"].update(gate())
+        with patch.object(bot, "send", new=AsyncMock()) as send:
+            await bot.cmd_start(text_update("/start"), ctx)
+        self.assertEqual(store["step"], "company_name")
+        self.assertEqual(store["answers"]["stage"], "seed")
+        self.assertIn("unfinished application", send.call_args[0][1])
+
+    async def test_start_without_progress_shows_welcome(self):
+        ctx = context()
+        with patch.object(bot, "ask", new=AsyncMock()) as ask:
+            await bot.cmd_start(text_update("/start"), ctx)
+        self.assertEqual(bot.data(ctx)["step"], "welcome")
+        ask.assert_awaited()
+
+    async def test_company_name_prompt_says_to_type(self):
+        ctx = context()
+        with patch.object(bot, "send_text_question", new=AsyncMock()) as send_q:
+            await bot.ask_company_name(text_update("x"), ctx, {}, {})
+        self.assertIn("Type your company name", send_q.call_args[0][1])
+
+
+class ClientCopy(unittest.TestCase):
+    def test_submitted_mentions_email_and_thanks(self):
+        self.assertIn("We will look at it", bot.SUBMITTED)
+        self.assertIn("over email", bot.SUBMITTED)
+        self.assertIn("Thank you!", bot.SUBMITTED)
+        self.assertNotIn("look at the numbers", bot.SUBMITTED)
+
+
+class SessionHelpers(unittest.TestCase):
+    def test_has_in_progress(self):
+        self.assertFalse(bot.has_in_progress({"answers": {}, "step": "welcome"}))
+        self.assertTrue(bot.has_in_progress({"answers": {"mrr": 1}, "step": "welcome"}))
+        self.assertTrue(bot.has_in_progress({"answers": {}, "step": "company_name"}))
+
+    def test_persistence_path_uses_data_dir(self):
+        with patch.dict(os.environ, {"DATA_DIR": "/tmp/v17-bot-test"}):
+            path = bot.persistence_path()
+        self.assertTrue(path.endswith("bot_data.pickle"))
+        self.assertIn("v17-bot-test", path)
 
 
 if __name__ == "__main__":

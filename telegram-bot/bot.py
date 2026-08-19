@@ -15,7 +15,7 @@ import os
 import re
 
 import httpx
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -23,6 +23,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    PicklePersistence,
     filters,
 )
 
@@ -42,7 +43,13 @@ PROXY_URL = os.environ.get(
     "https://lightgray-oryx-237895.hostingersite.com/wp-json/srm/v1/v17",
 ).strip()
 CONTACT_FALLBACK = "deals@v17.vc"
-BOT_VERSION = "2026-08-18a"
+BOT_VERSION = "2026-08-19a"
+SUBMITTED = (
+    "Application submitted\n\n"
+    "We will look at it. If your application fits our criteria, "
+    "we will reach out within a few weeks over email.\n\n"
+    "Thank you!"
+)
 
 MRR_SOFT_B2C = 10000
 MRR_HARD_B2C = 5000
@@ -124,6 +131,22 @@ APP_STEPS = [
     "notes",
     "review",
 ]
+
+
+def persistence_path() -> str:
+    data_dir = os.environ.get("DATA_DIR")
+    if not data_dir:
+        data_dir = "/data" if os.path.isdir("/data") else os.path.dirname(os.path.abspath(__file__))
+    os.makedirs(data_dir, exist_ok=True)
+    return os.path.join(data_dir, "bot_data.pickle")
+
+
+def has_in_progress(store: dict) -> bool:
+    ans = store.get("answers") or {}
+    step = store.get("step") or "welcome"
+    if step in ("welcome", "thesis"):
+        return bool(ans)
+    return True
 
 
 def data(context: ContextTypes.DEFAULT_TYPE) -> dict:
@@ -419,6 +442,10 @@ def text_nav(with_back: bool = True, skip: bool = False) -> InlineKeyboardMarkup
     return InlineKeyboardMarkup(extra)
 
 
+def force_reply(placeholder: str) -> ForceReply:
+    return ForceReply(selective=True, input_field_placeholder=(placeholder or "Type your answer")[:64])
+
+
 WELCOME = (
     "V17 — capital and marketing for a product that can outpace its own growth\n\n"
     "4 quick questions first — if we're a clear mismatch, we'll say so right away. "
@@ -470,6 +497,31 @@ async def send(update: Update, text: str, markup=None, html: bool = False) -> No
     await update.effective_message.reply_text(**kwargs)
 
 
+async def send_text_question(
+    update: Update,
+    text: str,
+    skip: bool = False,
+    placeholder: str = "Type your answer",
+) -> None:
+    """Always a new message + Telegram reply box. Editing a button message
+    never opens the keyboard, which is why people got stuck on Company name
+    and Other."""
+    await send(update, text, text_nav(skip=skip))
+    query = getattr(update, "callback_query", None)
+    message = getattr(query, "message", None) if query else None
+    if message is None:
+        message = getattr(update, "effective_message", None)
+    reply = getattr(message, "reply_text", None)
+    if reply is None:
+        return
+    result = reply(
+        "↓ Type your answer and tap Send",
+        reply_markup=force_reply(placeholder),
+    )
+    if hasattr(result, "__await__"):
+        await result
+
+
 async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     store = data(context)
     step = store["step"]
@@ -516,11 +568,11 @@ async def ask_stage(update, context, ans, tmp):
 
 
 async def ask_mrr(update, context, ans, tmp):
-    await send(
+    await send_text_question(
         update,
-        "3/4  Current MRR, $\n\nPlease type a number — 35k, 35 000 or $35,000 all work. "
+        "3/4  Current MRR, $\n\nType a number and send it — 35k, 35 000 or $35,000 all work. "
         "This is not a decision yet, just the next question.",
-        text_nav(),
+        placeholder="Current MRR, $",
     )
 
 
@@ -529,13 +581,17 @@ async def ask_market(update, context, ans, tmp):
     await send(
         update,
         "4/4  Top user markets — tap all that apply, then Next\n\n"
-        "If you choose Other, we'll ask you to type the market on the next screen.",
+        "If you choose Other, a text field will open so you can type the market.",
         multi_keyboard("market", MARKETS, selected),
     )
 
 
 async def ask_market_other(update, context, ans, tmp):
-    await send(update, "Which other markets? A few words is enough", text_nav())
+    await send_text_question(
+        update,
+        "You selected Other. Type the market(s) — a few words is enough",
+        placeholder="Other markets",
+    )
 
 
 async def ask_gate(update, context, ans, tmp):
@@ -599,11 +655,23 @@ async def ask_company_name(update, context, ans, tmp):
         prefix = "Thanks — we're a fit on the basics.\n\n"
     elif tmp.pop("fit_soft", None):
         prefix = "We'll take this into the separate pool.\n\n"
-    await send(update, prefix + await q("company_name", ans, "Company name"), text_nav())
+    await send_text_question(
+        update,
+        prefix + await q(
+            "company_name",
+            ans,
+            "Type your company name and send it as a message",
+        ),
+        placeholder="Company name",
+    )
 
 
 async def ask_website(update, context, ans, tmp):
-    await send(update, await q("website", ans, "Website — with https:// if you have it"), text_nav())
+    await send_text_question(
+        update,
+        await q("website", ans, "Type your website — with https:// if you have it"),
+        placeholder="Website",
+    )
 
 
 async def ask_interested_in(update, context, ans, tmp):
@@ -621,11 +689,19 @@ async def ask_interested_in(update, context, ans, tmp):
 
 
 async def ask_amount_raising(update, context, ans, tmp):
-    await send(update, await q("amount_raising", ans, "Amount raising, $"), text_nav())
+    await send_text_question(
+        update,
+        await q("amount_raising", ans, "Type the amount raising, $"),
+        placeholder="Amount raising, $",
+    )
 
 
 async def ask_post_money(update, context, ans, tmp):
-    await send(update, await q("post_money", ans, "Post-money valuation, $"), text_nav())
+    await send_text_question(
+        update,
+        await q("post_money", ans, "Type the post-money valuation, $"),
+        placeholder="Post-money valuation, $",
+    )
 
 
 async def ask_verticals(update, context, ans, tmp):
@@ -633,140 +709,159 @@ async def ask_verticals(update, context, ans, tmp):
     options = [(v, v) for v in VERTICALS]
     await send(
         update,
-        await q("verticals", ans, "Verticals — tap all that apply, then Next"),
+        await q(
+            "verticals",
+            ans,
+            "Verticals — tap all that apply, then Next\n\n"
+            "If you choose Other, a text field will open so you can describe it.",
+        ),
         multi_keyboard("verticals", options, selected),
     )
 
 
 async def ask_verticals_other(update, context, ans, tmp):
-    await send(update, await q("verticals_other", ans, "List relevant vertical(s) — describe briefly"), text_nav())
+    await send_text_question(
+        update,
+        await q(
+            "verticals_other",
+            ans,
+            "You selected Other. Type the vertical(s) — a few words is enough",
+        ),
+        placeholder="Other verticals",
+    )
 
 
 async def ask_problem(update, context, ans, tmp):
-    await send(
+    await send_text_question(
         update,
-        await q("problem", ans, "What you do and what problem you solve — 2-3 sentences"),
-        text_nav(),
+        await q("problem", ans, "Type what you do and what problem you solve — 2-3 sentences"),
+        placeholder="What you do",
     )
 
 
 async def ask_pitch_deck(update, context, ans, tmp):
-    await send(
+    await send_text_question(
         update,
         await q(
             "pitch_deck",
             ans,
-            "Pitch deck — send a link or attach a file (PDF or PPT, up to 10 MB)",
+            "Pitch deck — type a link or attach a file (PDF or PPT, up to 10 MB)",
         ),
-        text_nav(),
+        placeholder="Pitch deck link",
     )
 
 
 async def ask_icp(update, context, ans, tmp):
-    await send(update, await q("icp", ans, "ICP — who pays, why, how often"), text_nav())
+    await send_text_question(
+        update,
+        await q("icp", ans, "Type your ICP — who pays, why, how often"),
+        placeholder="ICP",
+    )
 
 
 async def ask_team(update, context, ans, tmp):
-    await send(
+    await send_text_question(
         update,
-        await q("team", ans, "Team — founders, background and links to profiles"),
-        text_nav(),
+        await q("team", ans, "Type about the team — founders, background and links to profiles"),
+        placeholder="Team",
     )
 
 
 async def ask_retention(update, context, ans, tmp):
-    await send(
+    await send_text_question(
         update,
         await q(
             "retention",
             ans,
-            "Retention D30 / D60 / D90, %\n\nThree numbers, in that order — e.g. 40 25 18",
+            "Type retention D30 / D60 / D90, %\n\nThree numbers, in that order — e.g. 40 25 18",
         ),
-        text_nav(),
+        placeholder="40 25 18",
     )
 
 
 async def ask_cac_ltv(update, context, ans, tmp):
-    await send(
+    await send_text_question(
         update,
-        await q("cac_ltv", ans, "CAC and LTV, $\n\nTwo numbers — e.g. 40 180"),
-        text_nav(),
+        await q("cac_ltv", ans, "Type CAC and LTV, $\n\nTwo numbers — e.g. 40 180"),
+        placeholder="40 180",
     )
 
 
 async def ask_session(update, context, ans, tmp):
-    await send(
+    await send_text_question(
         update,
-        await q("session", ans, "Avg session, min — if relevant"),
-        text_nav(skip=True),
+        await q("session", ans, "Type avg session, min — if relevant. Or tap Skip"),
+        skip=True,
+        placeholder="Avg session, min",
     )
 
 
 async def ask_payback(update, context, ans, tmp):
-    await send(
+    await send_text_question(
         update,
-        await q(
-            "payback",
-            ans,
-            "Payback: overall period and month-by-month dynamics",
-        ),
-        text_nav(),
+        await q("payback", ans, "Type payback: overall period and month-by-month dynamics"),
+        placeholder="Payback",
     )
 
 
 async def ask_sub_model(update, context, ans, tmp):
-    await send(
+    await send_text_question(
         update,
-        await q("sub_model", ans, "Subscription model / monetization"),
-        text_nav(),
+        await q("sub_model", ans, "Type the subscription model / monetization"),
+        placeholder="Monetization",
     )
 
 
 async def ask_organic(update, context, ans, tmp):
-    await send(
+    await send_text_question(
         update,
-        await q("organic_pct", ans, "% of organic traffic — a number"),
-        text_nav(),
+        await q("organic_pct", ans, "Type % of organic traffic — a number"),
+        placeholder="% organic",
     )
 
 
 async def ask_mrr_growth(update, context, ans, tmp):
-    await send(
+    await send_text_question(
         update,
-        await q("mrr_growth", ans, "MRR and avg MoM growth, % — e.g. $45k, +18% per month"),
-        text_nav(),
+        await q("mrr_growth", ans, "Type MRR and avg MoM growth, % — e.g. $45k, +18% per month"),
+        placeholder="$45k, +18% per month",
     )
 
 
 async def ask_spend(update, context, ans, tmp):
-    await send(
+    await send_text_question(
         update,
-        await q("marketing_spend", ans, "Monthly marketing spend, $"),
-        text_nav(),
+        await q("marketing_spend", ans, "Type monthly marketing spend, $"),
+        placeholder="Monthly marketing spend, $",
     )
 
 
 async def ask_contact_name(update, context, ans, tmp):
-    await send(update, await q("contact_name", ans, "Your name"), text_nav())
+    await send_text_question(
+        update,
+        await q("contact_name", ans, "Type your name and send it as a message"),
+        placeholder="Your name",
+    )
 
 
 async def ask_contact_email(update, context, ans, tmp):
-    await send(
+    await send_text_question(
         update,
         await q(
             "contact_email",
             ans,
-            "Email — corporate only, no gmail, yahoo, hotmail and similar",
+            "Type your email — corporate only, no gmail, yahoo, hotmail and similar",
         ),
-        text_nav(),
+        placeholder="you@company.com",
     )
 
 
 async def ask_notes(update, context, ans, tmp):
-    await send(
+    await send_text_question(
         update,
-        await q("notes", ans, "Anything else we should know"),
-        text_nav(skip=True),
+        await q("notes", ans, "Type anything else we should know. Or tap Skip"),
+        skip=True,
+        placeholder="Anything else",
     )
 
 
@@ -858,9 +953,27 @@ def reset_app(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    reset_app(context)
-    data(context)["step"] = "welcome"
+    store = data(context)
+    if has_in_progress(store):
+        await send(
+            update,
+            "You have an unfinished application. Continue where you left off, or start over?",
+            InlineKeyboardMarkup([
+                [InlineKeyboardButton("Continue", callback_data="nav:continue_saved")],
+                [InlineKeyboardButton("Start over", callback_data="nav:restart")],
+            ]),
+        )
+        return
+    store["step"] = "welcome"
     await ask(update, context)
+
+
+async def cmd_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    store = data(context)
+    if store["step"] in ("welcome", "thesis"):
+        await ask(update, context)
+        return
+    await go_back(update, context)
 
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -922,8 +1035,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     toast = None
-    if raw == "t:market:other" and step == "market":
-        toast = "Other selected. Tap Next and we'll ask you to type the market."
+    if raw in ("t:market:other", "t:verticals:Other") and raw.split(":")[1] == step:
+        toast = "Other selected — type your answer in the field that opens"
     await query.answer(toast)
 
     if raw == "nav:home":
@@ -990,6 +1103,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         # Segment: one tap is enough — go forward. Extra segments: Back, tap another.
         if prefix == "segment" and adding and selected:
             await go_next(update, context, from_step="segment")
+            return
+        if adding and key.lower() == "other" and prefix in ("market", "verticals"):
+            await go_next(update, context, from_step=prefix)
             return
         await ask(update, context)
         return
@@ -1388,14 +1504,7 @@ async def submit_application(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
     reset_app(context)
-    await send(
-        update,
-        "Application submitted\n\n"
-        "We will look at the numbers and get back to you. If your application "
-        "fits our criteria, we will reach out within a few weeks. Please do not "
-        "be discouraged if you do not hear back from us — those are just our "
-        "current focus areas, not a judgment on your company",
-    )
+    await send(update, SUBMITTED)
 
 
 async def load_remote_config() -> None:
@@ -1423,13 +1532,16 @@ def main() -> None:
     if not TOKEN:
         raise SystemExit("TELEGRAM_TOKEN is not set")
 
+    persistence = PicklePersistence(filepath=persistence_path())
     app = (
         Application.builder()
         .token(TOKEN)
+        .persistence(persistence)
         .concurrent_updates(False)
         .build()
     )
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("back", cmd_back))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.Document.ALL, on_document))
