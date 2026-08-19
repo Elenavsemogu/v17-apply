@@ -660,7 +660,7 @@ async def ask_company_name(update, context, ans, tmp):
         prefix + await q(
             "company_name",
             ans,
-            "Type your company name and send it as a message",
+            "Type your company name",
         ),
         placeholder="Company name",
     )
