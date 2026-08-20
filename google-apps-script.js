@@ -20,6 +20,8 @@
  */
 
 var CONFIG = {
+  // Секреты лучше один раз вписать сюда и запустить rememberSecrets() —
+  // они сохранятся в свойствах скрипта и не сотрутся при следующей вставке кода.
   // Notion: токен интеграции и data source базы «V17 dealflow».
   // Оставить пустым — писать только в таблицу.
   NOTION_TOKEN: '',           // ntn_... (выдал заказчик)
@@ -44,7 +46,24 @@ var CONFIG = {
   TEMPLATES_SHEET: 'Decline templates'
 };
 
-var BACKEND_VERSION = '2026-08-20a';
+var BACKEND_VERSION = '2026-08-20b';
+
+var SECRET_KEYS = ['NOTION_TOKEN', 'NOTION_DATA_SOURCE_ID', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID'];
+
+/* Свойства скрипта важнее пустого CONFIG: иначе обновление файла из git
+   затирает токены и setupTelegramPolling падает. */
+function secret(key) {
+  var fromProps = PropertiesService.getScriptProperties().getProperty(key);
+  if (fromProps) return fromProps;
+  return CONFIG[key] || '';
+}
+
+function rememberSecrets() {
+  var props = PropertiesService.getScriptProperties();
+  SECRET_KEYS.forEach(function (key) {
+    if (CONFIG[key]) props.setProperty(key, String(CONFIG[key]));
+  });
+}
 
 /* ==========================================================================
    НАСТРОЙКИ БЕЗ ПРОГРАММИСТА.
@@ -94,6 +113,7 @@ var DECLINE_TEMPLATES = [
 
 function doPost(e) {
   try {
+    rememberSecrets();
     var body = JSON.parse(e.postData.contents);
     // Апдейты Telegram сюда больше не приходят (webhook не используем —
     // GAS отвечает на POST редиректом 302, Telegram считает это ошибкой
@@ -376,7 +396,7 @@ function buildNotionFiles(d) {
 }
 
 function uploadDeckToNotion(d) {
-  if (!CONFIG.NOTION_TOKEN || !d.pitch_deck_file || !d.pitch_deck_file.data) return '';
+  if (!secret('NOTION_TOKEN') || !d.pitch_deck_file || !d.pitch_deck_file.data) return '';
   try {
     var name = d.pitch_deck_file.name || 'pitch-deck';
     var mime = d.pitch_deck_file.mime || 'application/octet-stream';
@@ -413,7 +433,7 @@ function uploadDeckToNotion(d) {
 
 function notionHeaders() {
   return {
-    'Authorization': 'Bearer ' + CONFIG.NOTION_TOKEN,
+    'Authorization': 'Bearer ' + secret('NOTION_TOKEN'),
     'Notion-Version': '2025-09-03'
   };
 }
@@ -429,7 +449,7 @@ function notionPageId(url) {
 function markNotionDeclined(notionUrl) {
   var id = notionPageId(notionUrl);
   if (!id) return { ok: false, error: 'Notion page id not found' };
-  if (!CONFIG.NOTION_TOKEN) return { ok: false, error: 'Notion token is not configured' };
+  if (!secret('NOTION_TOKEN')) return { ok: false, error: 'Notion token is not configured' };
   var payloads = [
     { properties: { Status: { status: { name: 'Declined' } } } },
     { properties: { Status: { select: { name: 'Declined' } } } }
@@ -469,7 +489,7 @@ function moneyFmt(v) {
 }
 
 function createNotionPage(d) {
-  if (!CONFIG.NOTION_TOKEN || !CONFIG.NOTION_DATA_SOURCE_ID) return '';
+  if (!secret('NOTION_TOKEN') || !secret('NOTION_DATA_SOURCE_ID')) return '';
 
   var rt = function (s) { return [{ text: { content: String(s || '').slice(0, 1900) } }]; };
   var num = function (v) { var n = parseFloat(v); return isNaN(n) ? null : n; };
@@ -562,11 +582,11 @@ function createNotionPage(d) {
     method: 'post',
     contentType: 'application/json',
     headers: {
-      'Authorization': 'Bearer ' + CONFIG.NOTION_TOKEN,
+      'Authorization': 'Bearer ' + secret('NOTION_TOKEN'),
       'Notion-Version': '2025-09-03'
     },
     payload: JSON.stringify({
-      parent: { type: 'data_source_id', data_source_id: CONFIG.NOTION_DATA_SOURCE_ID },
+      parent: { type: 'data_source_id', data_source_id: secret('NOTION_DATA_SOURCE_ID') },
       properties: properties,
       children: children
     }),
@@ -583,12 +603,12 @@ function createNotionPage(d) {
    (например, после изменения настроек чата) — тогда старый id перестаёт
    работать. Новый id запоминаем в Script Properties (см. tg ниже). */
 function tgChatId() {
-  return PropertiesService.getScriptProperties().getProperty('tg_chat_id') || CONFIG.TELEGRAM_CHAT_ID;
+  return PropertiesService.getScriptProperties().getProperty('tg_chat_id') || secret('TELEGRAM_CHAT_ID');
 }
 
 function tg(method, payload) {
   var call = function () {
-    return UrlFetchApp.fetch('https://api.telegram.org/bot' + CONFIG.TELEGRAM_TOKEN + '/' + method, {
+    return UrlFetchApp.fetch('https://api.telegram.org/bot' + secret('TELEGRAM_TOKEN') + '/' + method, {
       method: 'post',
       contentType: 'application/json',
       payload: JSON.stringify(payload),
@@ -622,7 +642,7 @@ function sendTelegramDeck(d, replyToMessageId) {
     f.name || 'pitch-deck'
   );
   var resp = UrlFetchApp.fetch(
-    'https://api.telegram.org/bot' + CONFIG.TELEGRAM_TOKEN + '/sendDocument',
+    'https://api.telegram.org/bot' + secret('TELEGRAM_TOKEN') + '/sendDocument',
     {
       method: 'post',
       payload: {
@@ -640,7 +660,7 @@ function sendTelegramDeck(d, replyToMessageId) {
 }
 
 function notifyTelegram(d, rowNum, notionUrl) {
-  if (!CONFIG.TELEGRAM_TOKEN || !CONFIG.TELEGRAM_CHAT_ID) return;
+  if (!secret('TELEGRAM_TOKEN') || !secret('TELEGRAM_CHAT_ID')) return;
 
   var joined = function (v) { return Array.isArray(v) ? v.join(', ') : (v || '—'); };
   var money = function (v) { return v ? '$' + Number(v).toLocaleString('en-US') : '—'; };
@@ -709,7 +729,7 @@ function declineKeyboard(rowNum, key) {
    на черновики через getUpdates. Оффсет хранится в Script Properties,
    поэтому каждое событие обрабатывается ровно один раз. */
 function pollTelegram() {
-  if (!CONFIG.TELEGRAM_TOKEN) return;
+  if (!secret('TELEGRAM_TOKEN')) return;
   var props = PropertiesService.getScriptProperties();
   var offset = Number(props.getProperty('tg_offset') || 0);
   var resp = tg('getUpdates', { offset: offset + 1, allowed_updates: ['callback_query', 'message'] });
@@ -951,8 +971,8 @@ function notionStatusFromPage(page) {
 /* Страницы CRM со статусом отказа. null = запрос не удался, дальше
    проверяем открытые строки по одной. {} = запрос ок, отказов нет. */
 function fetchDeclinedNotionIds() {
-  if (!CONFIG.NOTION_TOKEN || !CONFIG.NOTION_DATA_SOURCE_ID) return null;
-  var url = 'https://api.notion.com/v1/data_sources/' + CONFIG.NOTION_DATA_SOURCE_ID + '/query';
+  if (!secret('NOTION_TOKEN') || !secret('NOTION_DATA_SOURCE_ID')) return null;
+  var url = 'https://api.notion.com/v1/data_sources/' + secret('NOTION_DATA_SOURCE_ID') + '/query';
   var filters = [
     { property: 'Status', status: { equals: 'Declined' } },
     { property: 'Status', select: { equals: 'Declined' } }
@@ -1006,14 +1026,14 @@ function applyNotionDeclineToRow(sheet, rowNum, company) {
   var tgCol = SHEET_HEADERS.indexOf('Telegram message id') + 1;
   var messageId = sheet.getRange(rowNum, tgCol).getValue();
   var chatId = tgChatId();
-  if (messageId && CONFIG.TELEGRAM_TOKEN && chatId) {
+  if (messageId && secret('TELEGRAM_TOKEN') && chatId) {
     tg('editMessageReplyMarkup', {
       chat_id: chatId,
       message_id: String(messageId),
       reply_markup: { inline_keyboard: [] }
     });
   }
-  if (CONFIG.TELEGRAM_TOKEN && chatId) {
+  if (secret('TELEGRAM_TOKEN') && chatId) {
     var payload = {
       chat_id: chatId,
       text: '❌ <b>Отказ в Notion</b> — ' + esc(company || 'заявка') +
@@ -1029,7 +1049,7 @@ function applyNotionDeclineToRow(sheet, rowNum, company) {
 /* Раз в минуту: отказ, поставленный в Notion, догоняет таблицу и Telegram.
    Письмо-отказ отсюда не шлём — в CRM могли отказать без стандартного шаблона. */
 function syncNotionToTelegram() {
-  if (!CONFIG.NOTION_TOKEN || !CONFIG.NOTION_DATA_SOURCE_ID) return;
+  if (!secret('NOTION_TOKEN') || !secret('NOTION_DATA_SOURCE_ID')) return;
   var sheet = getSheet();
   var last = sheet.getLastRow();
   if (last < 2) return;
@@ -1061,7 +1081,7 @@ function syncNotionToTelegram() {
 
 function fetchNotionPageStatus(notionUrl) {
   var id = notionPageId(notionUrl);
-  if (!id || !CONFIG.NOTION_TOKEN) return '';
+  if (!id || !secret('NOTION_TOKEN')) return '';
   try {
     var resp = UrlFetchApp.fetch('https://api.notion.com/v1/pages/' + id, {
       headers: notionHeaders(),
@@ -1078,7 +1098,15 @@ function fetchNotionPageStatus(notionUrl) {
    Удаляет webhook (несовместим с GAS — тот отвечает 302, Telegram зацикливает
    повторы) и ставит таймеры раз в минуту. */
 function setupTelegramPolling() {
-  if (!CONFIG.TELEGRAM_TOKEN) throw new Error('Сначала впиши TELEGRAM_TOKEN в CONFIG');
+  rememberSecrets();
+  if (!secret('TELEGRAM_TOKEN')) {
+    throw new Error(
+      'Нет TELEGRAM_TOKEN. Пустой CONFIG из GitHub затёр токен. ' +
+      'Верни его: Apps Script → История версий (часики слева) → старая версия → скопируй ' +
+      'TELEGRAM_TOKEN и TELEGRAM_CHAT_ID в CONFIG, сохрани, снова запусти setupTelegramPolling. ' +
+      'Или возьми токен у @BotFather / из ACCESS-HOSTING.md.'
+    );
+  }
   tg('deleteWebhook', { drop_pending_updates: true });
 
   var needed = { pollTelegram: true, syncNotionToTelegram: true };
